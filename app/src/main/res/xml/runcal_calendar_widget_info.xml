@@ -8,4 +8,5 @@
     android:widgetCategory="home_screen"
     android:description="@string/runcal_calendar_widget_description"
     android:updatePeriodMillis="1800000"
+    android:configure="com.jongsun.runcal.widget.RunCalWidgetConfigActivity"
     android:initialLayout="@layout/glance_default_loading_layout" />

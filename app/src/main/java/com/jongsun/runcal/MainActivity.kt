@@ -1,6 +1,8 @@
 package com.jongsun.runcal
 
 import android.app.Activity
+import android.appwidget.AppWidgetManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -44,6 +46,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
+import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.updateAll
 import com.jongsun.runcal.data.CALENDAR_PERMISSIONS
 import com.jongsun.runcal.data.CalendarInfo
@@ -52,6 +55,7 @@ import com.jongsun.runcal.data.hasCalendarPermissions
 import com.jongsun.runcal.data.monthRangeMillis
 import com.jongsun.runcal.ui.theme.RunCalTheme
 import com.jongsun.runcal.widget.RunCalCalendarWidget
+import com.jongsun.runcal.widget.RunCalWidgetConfigActivity
 import java.time.YearMonth
 import kotlinx.coroutines.launch
 
@@ -198,6 +202,44 @@ private fun CalendarHomeScreen(modifier: Modifier = Modifier) {
         } else {
             calendars.forEach { calendar ->
                 CalendarRow(calendar)
+            }
+        }
+
+        WidgetInstancesSection()
+    }
+}
+
+@Composable
+private fun WidgetInstancesSection() {
+    val context = LocalContext.current
+    var widgetIds by remember { mutableStateOf<List<Int>>(emptyList()) }
+
+    LaunchedEffect(Unit) {
+        val manager = GlanceAppWidgetManager(context)
+        widgetIds = manager.getGlanceIds(RunCalCalendarWidget::class.java).map { manager.getAppWidgetId(it) }
+    }
+
+    HorizontalDivider()
+    Text(text = "배치된 위젯", style = MaterialTheme.typography.titleMedium)
+    if (widgetIds.isEmpty()) {
+        Text(text = "배치된 위젯이 없습니다", style = MaterialTheme.typography.bodyMedium)
+    } else {
+        widgetIds.forEach { appWidgetId ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(text = "위젯 #$appWidgetId", style = MaterialTheme.typography.bodyLarge)
+                Button(onClick = {
+                    // 위젯이 신규 배치될 때 시스템이 보내는 인텐트와 동일한 action/component로 구성해
+                    // 앱에서 재설정하는 경로와 최초 배치 경로가 완전히 동일하게 동작하도록 한다.
+                    val intent = Intent(AppWidgetManager.ACTION_APPWIDGET_CONFIGURE).apply {
+                        component = ComponentName(context, RunCalWidgetConfigActivity::class.java)
+                        putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
+                    }
+                    context.startActivity(intent)
+                }) { Text("설정") }
             }
         }
     }

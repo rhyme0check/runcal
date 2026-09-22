@@ -9,7 +9,6 @@
     <color name="white">#FFFFFFFF</color>
 
     <!-- RunCal calendar widget (light) -->
-    <color name="runcal_widget_background">#B3FFFFFF</color>
     <color name="runcal_widget_on_background">#FF1B1B1F</color>
     <color name="runcal_widget_on_background_dim">#611B1B1F</color>
     <color name="runcal_widget_sunday">#FFD32F2F</color>

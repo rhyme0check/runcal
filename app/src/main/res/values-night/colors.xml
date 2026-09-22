@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- RunCal calendar widget (dark) -->
-    <color name="runcal_widget_background">#B31C1B1F</color>
     <color name="runcal_widget_on_background">#FFE4E1E6</color>
     <color name="runcal_widget_on_background_dim">#61E4E1E6</color>
     <color name="runcal_widget_sunday">#FFEF9A9A</color>
