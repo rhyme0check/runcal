@@ -7,4 +7,17 @@
     <color name="teal_700">#FF018786</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+
+    <!-- RunCal calendar widget (light) -->
+    <color name="runcal_widget_background">#B3FFFFFF</color>
+    <color name="runcal_widget_on_background">#FF1B1B1F</color>
+    <color name="runcal_widget_on_background_dim">#611B1B1F</color>
+    <color name="runcal_widget_sunday">#FFD32F2F</color>
+    <color name="runcal_widget_sunday_dim">#61D32F2F</color>
+    <color name="runcal_widget_saturday">#FF1565C0</color>
+    <color name="runcal_widget_saturday_dim">#611565C0</color>
+    <color name="runcal_widget_today_background">#FF1B1B1F</color>
+    <color name="runcal_widget_on_today_background">#FFFFFFFF</color>
+    <color name="runcal_widget_schedule_text">#FF44464F</color>
+    <color name="runcal_widget_schedule_text_dim">#6144464F</color>
 </resources>

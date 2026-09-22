@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- RunCal calendar widget (dark) -->
+    <color name="runcal_widget_background">#B31C1B1F</color>
+    <color name="runcal_widget_on_background">#FFE4E1E6</color>
+    <color name="runcal_widget_on_background_dim">#61E4E1E6</color>
+    <color name="runcal_widget_sunday">#FFEF9A9A</color>
+    <color name="runcal_widget_sunday_dim">#61EF9A9A</color>
+    <color name="runcal_widget_saturday">#FF90CAF9</color>
+    <color name="runcal_widget_saturday_dim">#6190CAF9</color>
+    <color name="runcal_widget_today_background">#FFE4E1E6</color>
+    <color name="runcal_widget_on_today_background">#FF1B1B1F</color>
+    <color name="runcal_widget_schedule_text">#FFC6C6CD</color>
+    <color name="runcal_widget_schedule_text_dim">#61C6C6CD</color>
+</resources>
