@@ -13,8 +13,12 @@ data class CalendarDay(
 private const val WEEKS_IN_GRID = 6
 private const val DAYS_IN_WEEK = 7
 
-/** 일요일 시작 6주 x 7일 달력 그리드를 생성한다. */
-fun buildMonthGrid(yearMonth: YearMonth, today: LocalDate): List<List<CalendarDay>> {
+/** 일요일 시작 6주 x 7일 달력 그리드를 생성한다. [eventsByDay]는 해당 월의 일(day-of-month) 기준 일정 맵이다. */
+fun buildMonthGrid(
+    yearMonth: YearMonth,
+    today: LocalDate,
+    eventsByDay: Map<Int, List<ScheduleEntry>>,
+): List<List<CalendarDay>> {
     val firstOfMonth = yearMonth.atDay(1)
     // DayOfWeek.value: MONDAY=1 .. SUNDAY=7 -> 일요일을 0으로 하는 인덱스로 변환
     val firstDayOfWeekIndex = firstOfMonth.dayOfWeek.value % 7
@@ -29,7 +33,7 @@ fun buildMonthGrid(yearMonth: YearMonth, today: LocalDate): List<List<CalendarDa
                 isCurrentMonth = isCurrentMonth,
                 isToday = date == today,
                 schedules = if (isCurrentMonth) {
-                    DummyScheduleRepository.schedulesFor(date.dayOfMonth)
+                    eventsByDay[date.dayOfMonth].orEmpty()
                 } else {
                     emptyList()
                 },

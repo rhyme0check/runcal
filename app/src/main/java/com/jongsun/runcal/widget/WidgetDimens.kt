@@ -11,4 +11,5 @@ object RunCalWidgetTextSizes {
     val WeekdayHeader = 10.sp
     val DayNumber = 11.sp
     val Schedule = 8.sp
+    val Body = 12.sp
 }

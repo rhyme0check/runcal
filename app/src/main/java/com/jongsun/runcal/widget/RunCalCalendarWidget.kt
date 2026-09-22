@@ -1,11 +1,16 @@
 package com.jongsun.runcal.widget
 
 import android.content.Context
+import android.content.Intent
+import android.util.Log
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.unit.dp
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
+import androidx.glance.LocalContext
+import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
+import androidx.glance.appwidget.action.actionStartActivity
 import androidx.glance.appwidget.cornerRadius
 import androidx.glance.appwidget.provideContent
 import androidx.glance.background
@@ -26,26 +31,77 @@ import androidx.glance.text.Text
 import androidx.glance.text.TextAlign
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
+import com.jongsun.runcal.MainActivity
+import com.jongsun.runcal.data.CalendarRepository
+import com.jongsun.runcal.data.hasCalendarReadPermission
+import com.jongsun.runcal.data.monthRangeMillis
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.YearMonth
+
+private const val TAG = "RunCal"
 
 private val WEEKDAY_LABELS = listOf("일", "월", "화", "수", "목", "금", "토")
 private const val MAX_SCHEDULES_PER_DAY = 2
 
 class RunCalCalendarWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
+        val hasPermission = hasCalendarReadPermission(context)
+        val today = LocalDate.now()
+        val yearMonth = YearMonth.from(today)
+        val eventsByDay = if (hasPermission) {
+            try {
+                val repository = CalendarRepository(context)
+                val (start, end) = monthRangeMillis(yearMonth)
+                groupEventsByDay(repository.getEvents(start, end, calendarIds = null), yearMonth)
+            } catch (e: SecurityException) {
+                Log.e(TAG, "provideGlance: calendar access failed", e)
+                emptyMap()
+            }
+        } else {
+            emptyMap()
+        }
+
         provideContent {
-            RunCalCalendarWidgetContent()
+            if (hasPermission) {
+                RunCalCalendarWidgetContent(today = today, yearMonth = yearMonth, eventsByDay = eventsByDay)
+            } else {
+                PermissionRequiredContent()
+            }
         }
     }
 }
 
 @Composable
-private fun RunCalCalendarWidgetContent() {
-    val today = LocalDate.now()
-    val yearMonth = YearMonth.from(today)
-    val weeks = buildMonthGrid(yearMonth, today)
+private fun PermissionRequiredContent() {
+    val context = LocalContext.current
+    Box(
+        modifier = GlanceModifier
+            .fillMaxSize()
+            .background(RunCalWidgetColors.background)
+            .cornerRadius(20.dp)
+            .padding(16.dp)
+            .clickable(actionStartActivity(Intent(context, MainActivity::class.java))),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = "캘린더 권한이 필요합니다\n앱을 열어 권한을 허용해주세요",
+            style = TextStyle(
+                fontSize = RunCalWidgetTextSizes.Body,
+                color = RunCalWidgetColors.onBackground,
+                textAlign = TextAlign.Center,
+            ),
+        )
+    }
+}
+
+@Composable
+private fun RunCalCalendarWidgetContent(
+    today: LocalDate,
+    yearMonth: YearMonth,
+    eventsByDay: Map<Int, List<ScheduleEntry>>,
+) {
+    val weeks = buildMonthGrid(yearMonth, today, eventsByDay)
     val title = "${yearMonth.year}년 ${yearMonth.monthValue}월"
 
     Box(
