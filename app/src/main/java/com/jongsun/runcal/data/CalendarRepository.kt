@@ -74,6 +74,7 @@ class CalendarRepository(private val context: Context) {
                 CalendarContract.Instances.END,
                 CalendarContract.Instances.ALL_DAY,
                 CalendarContract.Instances.CALENDAR_COLOR,
+                CalendarContract.Instances.EVENT_LOCATION,
             )
             val uri = CalendarContract.Instances.CONTENT_URI.buildUpon().apply {
                 ContentUris.appendId(this, startMillis)
@@ -96,6 +97,7 @@ class CalendarRepository(private val context: Context) {
                 val endIdx = cursor.getColumnIndexOrThrow(CalendarContract.Instances.END)
                 val allDayIdx = cursor.getColumnIndexOrThrow(CalendarContract.Instances.ALL_DAY)
                 val calendarColorIdx = cursor.getColumnIndexOrThrow(CalendarContract.Instances.CALENDAR_COLOR)
+                val locationIdx = cursor.getColumnIndexOrThrow(CalendarContract.Instances.EVENT_LOCATION)
                 while (cursor.moveToNext()) {
                     result += EventItem(
                         id = cursor.getLong(eventIdIdx),
@@ -105,6 +107,7 @@ class CalendarRepository(private val context: Context) {
                         end = cursor.getLong(endIdx),
                         allDay = cursor.getInt(allDayIdx) != 0,
                         color = cursor.getInt(calendarColorIdx),
+                        location = cursor.getString(locationIdx).orEmpty(),
                     )
                 }
             }

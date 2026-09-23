@@ -2,4 +2,14 @@
 <resources>
 
     <style name="Theme.RunCal" parent="android:Theme.Material.Light.NoActionBar" />
+
+    <!-- 위젯 연월 선택 팝업(YearMonthPickerActivity) 전용 — 투명 배경 + 다이얼로그처럼 동작 -->
+    <style name="Theme.RunCal.Translucent" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowIsFloating">false</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:windowAnimationStyle">@android:style/Animation.Dialog</item>
+    </style>
 </resources>

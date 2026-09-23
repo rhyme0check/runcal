@@ -2,6 +2,7 @@ package com.jongsun.runcal.widget
 
 import android.content.Context
 import android.content.res.Configuration
+import android.util.Log
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
@@ -11,12 +12,22 @@ import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
-import androidx.datastore.preferences.core.stringSetPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
+import java.time.YearMonth
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.Json
+
+private const val TAG = "RunCal"
 
 object WidgetPreferenceKeys {
-    val SELECTED_CALENDAR_IDS = stringSetPreferencesKey("selected_calendar_ids")
+    val PRESETS_JSON = stringPreferencesKey("widget_presets_json")
+    val CURRENT_PRESET_INDEX = intPreferencesKey("current_preset_index")
     val FONT_SCALE_STEP = intPreferencesKey("font_scale_step")
     val BACKGROUND_OPACITY = floatPreferencesKey("background_opacity")
+    val VIEWING_YEAR_MONTH = stringPreferencesKey("viewing_year_month")
+    val LAST_NAVIGATED_AT_MILLIS = longPreferencesKey("last_navigated_at_millis")
 }
 
 const val MIN_FONT_SCALE_STEP = 1
@@ -24,33 +35,101 @@ const val MAX_FONT_SCALE_STEP = 5
 const val DEFAULT_FONT_SCALE_STEP = 3
 const val DEFAULT_BACKGROUND_OPACITY = 0.7f
 
+/** 위젯이 이번 달이 아닌 달을 보고 있을 때, 이 시간만큼 조작이 없으면 이번 달로 자동 복귀한다. */
+const val AUTO_RETURN_IDLE_MILLIS = 6 * 60 * 60 * 1000L
+
 private val DAY_BASE_BACKGROUND_COLOR = Color(0xFFFFFFFF)
 private val NIGHT_BASE_BACKGROUND_COLOR = Color(0xFF1C1B1F)
 
+val PRESET_COLOR_PALETTE = listOf(
+    0xFFE57373.toInt(),
+    0xFF64B5F6.toInt(),
+    0xFF81C784.toInt(),
+    0xFFFFB74D.toInt(),
+    0xFFBA68C8.toInt(),
+    0xFF4DB6AC.toInt(),
+    0xFF9E9E9E.toInt(),
+    0xFFF06292.toInt(),
+)
+
+/** 사용자 정의 이름 붙은 필터 세트. [calendarIds]가 null이면 전체 캘린더 표시. */
+@Serializable
+data class WidgetPreset(
+    val id: String,
+    val name: String,
+    val colorArgb: Int,
+    val calendarIds: Set<Long>? = null,
+)
+
+val DEFAULT_PRESET = WidgetPreset(id = "__all__", name = "전체", colorArgb = PRESET_COLOR_PALETTE[6], calendarIds = null)
+
 /**
  * 위젯 인스턴스별 필터/표시 설정.
- * [selectedCalendarIds]가 null이면 "설정 없음 = 전체 캘린더 표시" 기본값을 의미하고,
- * 빈 Set이면 사용자가 캘린더를 전부 해제한 상태(아무 일정도 표시하지 않음)를 의미한다.
+ * [viewingYearMonth]가 null이면 "이번 달을 보는 중"을 의미하고, 값이 있으면 헤더 이동/점프로
+ * 다른 달을 보고 있는 상태를 의미하며 [lastNavigatedAtMillis]와 함께 자동 복귀 판단에 쓰인다.
  */
 data class WidgetFilterSettings(
-    val selectedCalendarIds: Set<Long>? = null,
+    val presets: List<WidgetPreset> = emptyList(),
+    val currentPresetIndex: Int = 0,
     val fontScaleStep: Int = DEFAULT_FONT_SCALE_STEP,
     val backgroundOpacity: Float = DEFAULT_BACKGROUND_OPACITY,
+    val viewingYearMonth: YearMonth? = null,
+    val lastNavigatedAtMillis: Long = 0L,
 )
 
-fun Preferences.toWidgetFilterSettings(): WidgetFilterSettings = WidgetFilterSettings(
-    selectedCalendarIds = this[WidgetPreferenceKeys.SELECTED_CALENDAR_IDS]
-        ?.mapNotNull { it.toLongOrNull() }
-        ?.toSet(),
-    fontScaleStep = this[WidgetPreferenceKeys.FONT_SCALE_STEP] ?: DEFAULT_FONT_SCALE_STEP,
-    backgroundOpacity = this[WidgetPreferenceKeys.BACKGROUND_OPACITY] ?: DEFAULT_BACKGROUND_OPACITY,
-)
+fun WidgetFilterSettings.activePreset(): WidgetPreset {
+    if (presets.isEmpty()) return DEFAULT_PRESET
+    val idx = currentPresetIndex.coerceIn(presets.indices)
+    return presets[idx]
+}
+
+fun WidgetFilterSettings.nextPresetIndex(): Int {
+    if (presets.size <= 1) return 0
+    val idx = currentPresetIndex.coerceIn(presets.indices)
+    return (idx + 1) % presets.size
+}
+
+private val presetListSerializer = ListSerializer(WidgetPreset.serializer())
+
+fun Preferences.toWidgetFilterSettings(): WidgetFilterSettings {
+    val presets = this[WidgetPreferenceKeys.PRESETS_JSON]?.let { json ->
+        try {
+            Json.decodeFromString(presetListSerializer, json)
+        } catch (e: Exception) {
+            Log.e(TAG, "toWidgetFilterSettings: failed to parse presets json", e)
+            emptyList()
+        }
+    } ?: emptyList()
+
+    val viewingYearMonth = this[WidgetPreferenceKeys.VIEWING_YEAR_MONTH]?.let {
+        try {
+            YearMonth.parse(it)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    return WidgetFilterSettings(
+        presets = presets,
+        currentPresetIndex = this[WidgetPreferenceKeys.CURRENT_PRESET_INDEX] ?: 0,
+        fontScaleStep = this[WidgetPreferenceKeys.FONT_SCALE_STEP] ?: DEFAULT_FONT_SCALE_STEP,
+        backgroundOpacity = this[WidgetPreferenceKeys.BACKGROUND_OPACITY] ?: DEFAULT_BACKGROUND_OPACITY,
+        viewingYearMonth = viewingYearMonth,
+        lastNavigatedAtMillis = this[WidgetPreferenceKeys.LAST_NAVIGATED_AT_MILLIS] ?: 0L,
+    )
+}
 
 fun MutablePreferences.applyWidgetFilterSettings(settings: WidgetFilterSettings) {
-    this[WidgetPreferenceKeys.SELECTED_CALENDAR_IDS] =
-        settings.selectedCalendarIds.orEmpty().map { it.toString() }.toSet()
+    this[WidgetPreferenceKeys.PRESETS_JSON] = Json.encodeToString(presetListSerializer, settings.presets)
+    this[WidgetPreferenceKeys.CURRENT_PRESET_INDEX] = settings.currentPresetIndex
     this[WidgetPreferenceKeys.FONT_SCALE_STEP] = settings.fontScaleStep
     this[WidgetPreferenceKeys.BACKGROUND_OPACITY] = settings.backgroundOpacity
+    if (settings.viewingYearMonth == null) {
+        this.remove(WidgetPreferenceKeys.VIEWING_YEAR_MONTH)
+    } else {
+        this[WidgetPreferenceKeys.VIEWING_YEAR_MONTH] = settings.viewingYearMonth.toString()
+    }
+    this[WidgetPreferenceKeys.LAST_NAVIGATED_AT_MILLIS] = settings.lastNavigatedAtMillis
 }
 
 data class WidgetTextSizes(

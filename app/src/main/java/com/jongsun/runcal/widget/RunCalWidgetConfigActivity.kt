@@ -10,6 +10,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,12 +22,20 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
@@ -51,10 +61,11 @@ import com.jongsun.runcal.data.CalendarInfo
 import com.jongsun.runcal.data.CalendarRepository
 import com.jongsun.runcal.data.hasCalendarPermissions
 import com.jongsun.runcal.ui.theme.RunCalTheme
+import java.util.UUID
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
-/** 위젯을 홈 화면에 배치할 때(또는 앱에서 재설정할 때) 뜨는 인스턴스별 필터/표시 설정 화면. */
+/** 위젯을 홈 화면에 배치할 때(또는 앱에서 재설정할 때) 뜨는 인스턴스별 프리셋/표시 설정 화면. */
 class RunCalWidgetConfigActivity : ComponentActivity() {
     private var appWidgetId = AppWidgetManager.INVALID_APPWIDGET_ID
 
@@ -92,6 +103,13 @@ class RunCalWidgetConfigActivity : ComponentActivity() {
     }
 }
 
+private fun newPreset(index: Int, calendars: List<CalendarInfo>): WidgetPreset = WidgetPreset(
+    id = UUID.randomUUID().toString(),
+    name = "프리셋 ${index + 1}",
+    colorArgb = PRESET_COLOR_PALETTE[index % PRESET_COLOR_PALETTE.size],
+    calendarIds = calendars.map { it.id }.toSet(),
+)
+
 @Composable
 private fun WidgetConfigScreen(
     appWidgetId: Int,
@@ -118,7 +136,9 @@ private fun WidgetConfigScreen(
 
     var glanceId by remember { mutableStateOf<GlanceId?>(null) }
     var calendars by remember { mutableStateOf<List<CalendarInfo>>(emptyList()) }
-    var selectedIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
+    var presets by remember { mutableStateOf<List<WidgetPreset>>(emptyList()) }
+    var currentPresetIndex by remember { mutableIntStateOf(0) }
+    var expandedPresetId by remember { mutableStateOf<String?>(null) }
     var fontStep by remember { mutableIntStateOf(DEFAULT_FONT_SCALE_STEP) }
     var opacity by remember { mutableFloatStateOf(DEFAULT_BACKGROUND_OPACITY) }
     var loaded by remember { mutableStateOf(false) }
@@ -130,7 +150,8 @@ private fun WidgetConfigScreen(
         val existing = loadWidgetFilterSettings(context, id)
         val loadedCalendars = repository.getCalendars()
         calendars = loadedCalendars
-        selectedIds = existing.selectedCalendarIds ?: loadedCalendars.map { it.id }.toSet()
+        presets = existing.presets.ifEmpty { listOf(newPreset(0, loadedCalendars)) }
+        currentPresetIndex = existing.currentPresetIndex
         fontStep = existing.fontScaleStep
         opacity = existing.backgroundOpacity
         loaded = true
@@ -152,19 +173,42 @@ private fun WidgetConfigScreen(
         } else if (!loaded) {
             Text(text = "불러오는 중...", style = MaterialTheme.typography.bodyMedium)
         } else {
-            Text(text = "표시할 캘린더", style = MaterialTheme.typography.titleMedium)
-            if (calendars.isEmpty()) {
-                Text(text = "표시할 캘린더가 없습니다", style = MaterialTheme.typography.bodyMedium)
-            } else {
-                calendars.forEach { calendar ->
-                    CalendarCheckboxRow(
-                        calendar = calendar,
-                        checked = selectedIds.contains(calendar.id),
-                        onCheckedChange = { checked ->
-                            selectedIds = if (checked) selectedIds + calendar.id else selectedIds - calendar.id
-                        },
-                    )
-                }
+            Text(text = "프리셋", style = MaterialTheme.typography.titleMedium)
+            Text(
+                text = "위젯 헤더의 색상 칩을 탭하면 아래 순서로 순환합니다.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            presets.forEachIndexed { index, preset ->
+                PresetEditorCard(
+                    preset = preset,
+                    calendars = calendars,
+                    expanded = expandedPresetId == preset.id,
+                    canDelete = presets.size > 1,
+                    onToggleExpand = {
+                        expandedPresetId = if (expandedPresetId == preset.id) null else preset.id
+                    },
+                    onNameChange = { newName ->
+                        presets = presets.toMutableList().apply { this[index] = preset.copy(name = newName) }
+                    },
+                    onColorChange = { newColor ->
+                        presets = presets.toMutableList().apply { this[index] = preset.copy(colorArgb = newColor) }
+                    },
+                    onCalendarToggle = { calendarId, checked ->
+                        val current = preset.calendarIds ?: calendars.map { it.id }.toSet()
+                        val updated = if (checked) current + calendarId else current - calendarId
+                        presets = presets.toMutableList().apply { this[index] = preset.copy(calendarIds = updated) }
+                    },
+                    onDelete = {
+                        presets = presets.filterIndexed { i, _ -> i != index }
+                        if (currentPresetIndex >= presets.size) currentPresetIndex = 0
+                    },
+                )
+            }
+
+            OutlinedButton(onClick = { presets = presets + newPreset(presets.size, calendars) }) {
+                Text("+ 프리셋 추가")
             }
 
             HorizontalDivider()
@@ -193,17 +237,15 @@ private fun WidgetConfigScreen(
                     scope.launch {
                         Log.d(
                             "RunCal",
-                            "WidgetConfigScreen: appWidgetId=$appWidgetId saving " +
-                                "selected=${selectedIds.size} step=$fontStep opacity=$opacity",
+                            "WidgetConfigScreen: appWidgetId=$appWidgetId saving presets=${presets.size} step=$fontStep opacity=$opacity",
                         )
                         saveWidgetFilterSettings(
                             context = context,
                             glanceId = id,
-                            settings = WidgetFilterSettings(
-                                selectedCalendarIds = selectedIds,
-                                fontScaleStep = fontStep,
-                                backgroundOpacity = opacity,
-                            ),
+                            presets = presets,
+                            currentPresetIndex = currentPresetIndex,
+                            fontScaleStep = fontStep,
+                            backgroundOpacity = opacity,
                         )
                         onSaved()
                     }
@@ -216,21 +258,89 @@ private fun WidgetConfigScreen(
 }
 
 @Composable
-private fun CalendarCheckboxRow(
-    calendar: CalendarInfo,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
+private fun PresetEditorCard(
+    preset: WidgetPreset,
+    calendars: List<CalendarInfo>,
+    expanded: Boolean,
+    canDelete: Boolean,
+    onToggleExpand: () -> Unit,
+    onNameChange: (String) -> Unit,
+    onColorChange: (Int) -> Unit,
+    onCalendarToggle: (Long, Boolean) -> Unit,
+    onDelete: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    val selectedCalendarIds = preset.calendarIds ?: calendars.map { it.id }.toSet()
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
+            .padding(12.dp),
     ) {
-        Checkbox(checked = checked, onCheckedChange = onCheckedChange)
-        Box(modifier = Modifier.size(12.dp).background(color = Color(calendar.color), shape = CircleShape))
-        Column {
-            Text(text = calendar.displayName, style = MaterialTheme.typography.bodyLarge)
-            Text(text = calendar.accountName, style = MaterialTheme.typography.bodySmall)
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            Box(modifier = Modifier.size(16.dp).background(Color(preset.colorArgb), CircleShape))
+            OutlinedTextField(
+                value = preset.name,
+                onValueChange = onNameChange,
+                singleLine = true,
+                modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+                label = { Text("이름") },
+            )
+            IconButton(onClick = onToggleExpand) {
+                Icon(
+                    imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = if (expanded) "접기" else "펼치기",
+                )
+            }
+            if (canDelete) {
+                IconButton(onClick = onDelete) {
+                    Icon(Icons.Default.Delete, contentDescription = "프리셋 삭제")
+                }
+            }
+        }
+
+        if (expanded) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            ) {
+                PRESET_COLOR_PALETTE.forEach { colorArgb ->
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .background(Color(colorArgb), CircleShape)
+                            .border(
+                                width = if (colorArgb == preset.colorArgb) 2.dp else 0.dp,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                shape = CircleShape,
+                            )
+                            .clickable { onColorChange(colorArgb) },
+                    )
+                }
+            }
+
+            Text(
+                text = "표시할 캘린더",
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
+            )
+            calendars.forEach { calendar ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Checkbox(
+                        checked = selectedCalendarIds.contains(calendar.id),
+                        onCheckedChange = { checked -> onCalendarToggle(calendar.id, checked) },
+                    )
+                    Box(modifier = Modifier.size(10.dp).background(Color(calendar.color), CircleShape))
+                    Column {
+                        Text(text = calendar.displayName, style = MaterialTheme.typography.bodyMedium)
+                        Text(text = calendar.accountName, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
         }
     }
 }

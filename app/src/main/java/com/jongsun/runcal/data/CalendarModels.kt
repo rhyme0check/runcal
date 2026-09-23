@@ -16,4 +16,5 @@ data class EventItem(
     val end: Long,
     val allDay: Boolean,
     val color: Int,
+    val location: String = "",
 )

@@ -24,4 +24,7 @@ object RunCalWidgetColors {
 
     val scheduleText = ColorProvider(R.color.runcal_widget_schedule_text)
     val scheduleTextDim = ColorProvider(R.color.runcal_widget_schedule_text_dim)
+
+    /** 헤더 2단에서 이번 달이 아닌 달을 보고 있을 때 연월 텍스트를 강조하는 색상. */
+    val accent = ColorProvider(R.color.runcal_widget_sunday)
 }
