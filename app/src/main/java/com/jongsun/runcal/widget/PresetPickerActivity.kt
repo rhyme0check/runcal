@@ -37,7 +37,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.glance.appwidget.GlanceAppWidgetManager
 import com.jongsun.runcal.ui.theme.RunCalTheme
 import kotlinx.coroutines.launch
 
@@ -89,8 +88,7 @@ private fun PresetPickerScreen(appWidgetId: Int, onDismiss: () -> Unit) {
     var loaded by remember { mutableStateOf(false) }
 
     LaunchedEffect(appWidgetId) {
-        val glanceId = GlanceAppWidgetManager(context).getGlanceIdBy(appWidgetId)
-        val settings = loadWidgetFilterSettings(context, glanceId)
+        val settings = loadWidgetFilterSettings(context, appWidgetId)
         presets = settings.presets
         currentPresetIndex = settings.currentPresetIndex
         loaded = true
@@ -98,7 +96,6 @@ private fun PresetPickerScreen(appWidgetId: Int, onDismiss: () -> Unit) {
 
     fun select(index: Int) {
         Log.d(TAG, "callback=PresetPickerScreen.select id=$appWidgetId index=$index")
-        WidgetCallbackTiming.markCallback(appWidgetId)
         scope.launch {
             applyWidgetState(context, appWidgetId) { current -> current.copy(currentPresetIndex = index) }
             onDismiss()

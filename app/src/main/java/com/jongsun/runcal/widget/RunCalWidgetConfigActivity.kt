@@ -53,8 +53,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.glance.GlanceId
-import androidx.glance.appwidget.GlanceAppWidgetManager
 import com.jongsun.runcal.CalendarObserverManager
 import com.jongsun.runcal.data.CALENDAR_PERMISSIONS
 import com.jongsun.runcal.data.CalendarInfo
@@ -134,7 +132,6 @@ private fun WidgetConfigScreen(
         if (!permissionGranted) permissionLauncher.launch(CALENDAR_PERMISSIONS)
     }
 
-    var glanceId by remember { mutableStateOf<GlanceId?>(null) }
     var calendars by remember { mutableStateOf<List<CalendarInfo>>(emptyList()) }
     var presets by remember { mutableStateOf<List<WidgetPreset>>(emptyList()) }
     var currentPresetIndex by remember { mutableIntStateOf(0) }
@@ -145,9 +142,7 @@ private fun WidgetConfigScreen(
 
     LaunchedEffect(permissionGranted) {
         if (!permissionGranted) return@LaunchedEffect
-        val id = GlanceAppWidgetManager(context).getGlanceIdBy(appWidgetId)
-        glanceId = id
-        val existing = loadWidgetFilterSettings(context, id)
+        val existing = loadWidgetFilterSettings(context, appWidgetId)
         val loadedCalendars = repository.getCalendars()
         calendars = loadedCalendars
         presets = existing.presets.ifEmpty { listOf(newPreset(0, loadedCalendars)) }
@@ -230,10 +225,6 @@ private fun WidgetConfigScreen(
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = {
-                    val id = glanceId ?: run {
-                        Log.e("RunCal", "WidgetConfigScreen: appWidgetId=$appWidgetId glanceId not ready, save aborted")
-                        return@Button
-                    }
                     scope.launch {
                         Log.d(
                             "RunCal",
@@ -241,7 +232,7 @@ private fun WidgetConfigScreen(
                         )
                         saveWidgetFilterSettings(
                             context = context,
-                            glanceId = id,
+                            appWidgetId = appWidgetId,
                             presets = presets,
                             currentPresetIndex = currentPresetIndex,
                             fontScaleStep = fontStep,

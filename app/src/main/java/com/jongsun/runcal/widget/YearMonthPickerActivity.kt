@@ -42,7 +42,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.glance.appwidget.GlanceAppWidgetManager
 import com.jongsun.runcal.ui.theme.RunCalTheme
 import java.time.YearMonth
 import kotlinx.coroutines.launch
@@ -95,8 +94,7 @@ private fun YearMonthPickerScreen(appWidgetId: Int, onDismiss: () -> Unit) {
     var loaded by remember { mutableStateOf(false) }
 
     LaunchedEffect(appWidgetId) {
-        val glanceId = GlanceAppWidgetManager(context).getGlanceIdBy(appWidgetId)
-        val settings = loadWidgetFilterSettings(context, glanceId)
+        val settings = loadWidgetFilterSettings(context, appWidgetId)
         val yearMonth = settings.viewingYearMonth ?: YearMonth.now()
         currentYearMonth = yearMonth
         year = yearMonth.year
@@ -105,7 +103,6 @@ private fun YearMonthPickerScreen(appWidgetId: Int, onDismiss: () -> Unit) {
 
     fun confirm(target: YearMonth?) {
         Log.d(TAG, "callback=YearMonthPickerScreen.confirm id=$appWidgetId target=$target")
-        WidgetCallbackTiming.markCallback(appWidgetId)
         scope.launch {
             applyWidgetState(context, appWidgetId) { current ->
                 current.copy(viewingYearMonth = target, lastNavigatedAtMillis = System.currentTimeMillis())

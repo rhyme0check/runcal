@@ -10,8 +10,7 @@ import com.jongsun.runcal.data.DEFAULT_APP_FONT_SCALE_STEP
 import com.jongsun.runcal.data.DEFAULT_WEEK_START_DAY
 import com.jongsun.runcal.data.EventItem
 import com.jongsun.runcal.data.occursOn
-import com.jongsun.runcal.widget.RunCalCalendarWidget
-import androidx.glance.appwidget.updateAll
+import com.jongsun.runcal.widget.RunCalWidgetRenderer
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.YearMonth
@@ -139,7 +138,7 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
     suspend fun ensureLocalTestCalendar(): Long {
         val id = repository.ensureLocalTestCalendar()
         refreshCalendars()
-        RunCalCalendarWidget().updateAll(getApplication())
+        RunCalWidgetRenderer.updateAllWidgets(getApplication())
         return id
     }
 
@@ -148,7 +147,7 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
         val inserted = repository.addSampleEvents(calendarId, count)
         invalidateCache()
         ensureMonthLoaded(_visibleYearMonth.value, force = true)
-        RunCalCalendarWidget().updateAll(getApplication())
+        RunCalWidgetRenderer.updateAllWidgets(getApplication())
         return inserted
     }
 

@@ -35,12 +35,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jongsun.runcal.data.CalendarInfo
 import com.jongsun.runcal.data.MAX_APP_FONT_SCALE_STEP
 import com.jongsun.runcal.data.MIN_APP_FONT_SCALE_STEP
-import com.jongsun.runcal.widget.RunCalCalendarWidget
+import com.jongsun.runcal.widget.RunCalCalendarWidgetProvider
 import com.jongsun.runcal.widget.RunCalWidgetConfigActivity
 import java.time.DayOfWeek
 import kotlin.math.roundToInt
@@ -181,8 +180,8 @@ private fun PlacedWidgetsSection() {
     var widgetIds by remember { mutableStateOf<List<Int>>(emptyList()) }
 
     LaunchedEffect(Unit) {
-        val manager = GlanceAppWidgetManager(context)
-        widgetIds = manager.getGlanceIds(RunCalCalendarWidget::class.java).map { manager.getAppWidgetId(it) }
+        val manager = AppWidgetManager.getInstance(context)
+        widgetIds = manager.getAppWidgetIds(ComponentName(context, RunCalCalendarWidgetProvider::class.java)).toList()
     }
 
     Text(text = "배치된 위젯", style = MaterialTheme.typography.titleMedium)

@@ -58,7 +58,7 @@
             android:theme="@style/Theme.RunCal.Translucent" />
 
         <receiver
-            android:name=".widget.RunCalCalendarWidgetReceiver"
+            android:name=".widget.RunCalCalendarWidgetProvider"
             android:exported="false"
             android:label="@string/runcal_calendar_widget_label">
             <intent-filter>
@@ -68,6 +68,10 @@
                 android:name="android.appwidget.provider"
                 android:resource="@xml/runcal_calendar_widget_info" />
         </receiver>
+
+        <receiver
+            android:name=".widget.RunCalWidgetActionReceiver"
+            android:exported="false" />
     </application>
 
 </manifest>

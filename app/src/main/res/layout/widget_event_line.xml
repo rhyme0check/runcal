@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:layout_marginTop="1dp">
+
+    <ImageView
+        android:id="@+id/event_dot"
+        android:layout_width="4dp"
+        android:layout_height="4dp"
+        android:src="@drawable/widget_dot" />
+
+    <TextView
+        android:id="@+id/event_text"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:layout_marginStart="2dp"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:textSize="10sp" />
+
+</LinearLayout>

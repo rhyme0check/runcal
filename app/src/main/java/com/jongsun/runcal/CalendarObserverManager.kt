@@ -6,9 +6,8 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.CalendarContract
 import android.util.Log
-import androidx.glance.appwidget.updateAll
 import com.jongsun.runcal.data.hasCalendarReadPermission
-import com.jongsun.runcal.widget.RunCalCalendarWidget
+import com.jongsun.runcal.widget.RunCalWidgetRenderer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -37,7 +36,7 @@ object CalendarObserverManager {
             override fun onChange(selfChange: Boolean) {
                 scope.launch {
                     try {
-                        RunCalCalendarWidget().updateAll(appContext)
+                        RunCalWidgetRenderer.updateAllWidgets(appContext)
                     } catch (e: Exception) {
                         Log.e(TAG, "CalendarObserverManager: widget update failed", e)
                     }

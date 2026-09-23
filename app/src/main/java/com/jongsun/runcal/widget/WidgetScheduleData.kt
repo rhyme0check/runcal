@@ -1,8 +1,8 @@
 package com.jongsun.runcal.widget
 
-import androidx.compose.ui.graphics.Color
+import androidx.annotation.ColorInt
 
 data class ScheduleEntry(
     val text: String,
-    val dotColor: Color,
+    @ColorInt val dotColor: Int,
 )

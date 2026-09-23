@@ -1,6 +1,5 @@
 package com.jongsun.runcal.widget
 
-import androidx.compose.ui.graphics.Color
 import com.jongsun.runcal.data.EventItem
 import java.time.Instant
 import java.time.YearMonth
@@ -20,7 +19,7 @@ fun groupEventsByDay(
         if (date.year == yearMonth.year && date.month == yearMonth.month) {
             grouped.getOrPut(date.dayOfMonth) { mutableListOf() } += ScheduleEntry(
                 text = event.title,
-                dotColor = Color(event.color),
+                dotColor = event.color,
             )
         }
     }
