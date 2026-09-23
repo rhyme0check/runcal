@@ -6,7 +6,6 @@ import android.util.Log
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.LocalContext
@@ -85,10 +84,6 @@ class RunCalCalendarWidget : GlanceAppWidget() {
             }
         }
 
-        // TODO: 임시 진단용 - 원인 확인 후 제거
-        val diagnosticText = "id=$appWidgetId cals=${settings.selectedCalendarIds?.size ?: -1} " +
-            "size=${settings.fontScaleStep}"
-
         provideContent {
             if (hasPermission) {
                 RunCalCalendarWidgetContent(
@@ -97,13 +92,11 @@ class RunCalCalendarWidget : GlanceAppWidget() {
                     eventsByDay = eventsByDay,
                     textSizes = textSizes,
                     backgroundColor = backgroundColor,
-                    diagnosticText = diagnosticText,
                 )
             } else {
                 PermissionRequiredContent(
                     backgroundColor = backgroundColor,
                     bodySize = textSizes.body,
-                    diagnosticText = diagnosticText,
                 )
             }
         }
@@ -111,7 +104,7 @@ class RunCalCalendarWidget : GlanceAppWidget() {
 }
 
 @Composable
-private fun PermissionRequiredContent(backgroundColor: ColorProvider, bodySize: TextUnit, diagnosticText: String) {
+private fun PermissionRequiredContent(backgroundColor: ColorProvider, bodySize: TextUnit) {
     val context = LocalContext.current
     Box(
         modifier = GlanceModifier
@@ -122,34 +115,15 @@ private fun PermissionRequiredContent(backgroundColor: ColorProvider, bodySize: 
             .clickable(actionStartActivity(Intent(context, MainActivity::class.java))),
         contentAlignment = Alignment.Center,
     ) {
-        Column(horizontalAlignment = Alignment.Horizontal.CenterHorizontally) {
-            // TODO: 임시 진단용 - 원인 확인 후 제거
-            DiagnosticText(diagnosticText)
-            Text(
-                text = "캘린더 권한이 필요합니다\n앱을 열어 권한을 허용해주세요",
-                style = TextStyle(
-                    fontSize = bodySize,
-                    color = RunCalWidgetColors.onBackground,
-                    textAlign = TextAlign.Center,
-                ),
-            )
-        }
+        Text(
+            text = "캘린더 권한이 필요합니다\n앱을 열어 권한을 허용해주세요",
+            style = TextStyle(
+                fontSize = bodySize,
+                color = RunCalWidgetColors.onBackground,
+                textAlign = TextAlign.Center,
+            ),
+        )
     }
-}
-
-/** TODO: 임시 진단용 - 위젯 인스턴스별 설정이 올바르게 적용되는지 확인 후 제거. */
-@Composable
-private fun DiagnosticText(text: String) {
-    Text(
-        text = text,
-        style = TextStyle(
-            fontSize = 9.sp,
-            fontWeight = FontWeight.Bold,
-            color = RunCalWidgetColors.sunday,
-            textAlign = TextAlign.Center,
-        ),
-        modifier = GlanceModifier.fillMaxWidth(),
-    )
 }
 
 @Composable
@@ -159,7 +133,6 @@ private fun RunCalCalendarWidgetContent(
     eventsByDay: Map<Int, List<ScheduleEntry>>,
     textSizes: WidgetTextSizes,
     backgroundColor: ColorProvider,
-    diagnosticText: String,
 ) {
     val weeks = buildMonthGrid(yearMonth, today, eventsByDay)
     val title = "${yearMonth.year}년 ${yearMonth.monthValue}월"
@@ -172,8 +145,6 @@ private fun RunCalCalendarWidgetContent(
             .padding(10.dp),
     ) {
         Column(modifier = GlanceModifier.fillMaxSize()) {
-            // TODO: 임시 진단용 - 원인 확인 후 제거
-            DiagnosticText(diagnosticText)
             Text(
                 text = title,
                 style = TextStyle(
