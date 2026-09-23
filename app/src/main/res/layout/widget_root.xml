@@ -110,6 +110,13 @@
             android:orientation="horizontal"
             android:weightSum="7">
 
+            <!-- 주차 번호 토글이 켜졌을 때만 보임(기본 GONE). 주 그리드의 week_number_text와 폭을 맞춘다. -->
+            <TextView
+                android:id="@+id/week_number_header"
+                android:layout_width="20dp"
+                android:layout_height="wrap_content"
+                android:visibility="gone" />
+
             <TextView
                 style="@style/WidgetWeekdayLabel"
                 android:text="일"

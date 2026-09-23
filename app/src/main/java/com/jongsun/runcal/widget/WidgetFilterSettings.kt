@@ -46,6 +46,8 @@ data class WidgetFilterSettings(
     val backgroundOpacity: Float = DEFAULT_BACKGROUND_OPACITY,
     val viewingYearMonth: YearMonth? = null,
     val lastNavigatedAtMillis: Long = 0L,
+    /** 각 주 왼쪽에 ISO 주차 숫자 칸을 추가로 그릴지. 기본 off. */
+    val showWeekNumber: Boolean = false,
 )
 
 fun WidgetFilterSettings.activePreset(): WidgetPreset {
@@ -63,42 +65,47 @@ fun WidgetFilterSettings.nextPresetIndex(): Int {
 /** [WidgetPreset] 리스트를 JSON으로 (역)직렬화할 때 쓰는 공용 시리얼라이저. */
 val presetListSerializer = ListSerializer(WidgetPreset.serializer())
 
-/**
- * RemoteViews에 바로 넘길 수 있는 실측 텍스트/치수 값(sp/dp 그대로의 Float).
- * 1단계에서는 기존 Glance 버전과 비슷한 배율 방식을 유지하고, 5단계 고정 표는 2단계에서 적용한다.
- */
+/** RemoteViews에 바로 넘길 수 있는 실측 텍스트/치수 값(sp/dp 그대로의 Float). */
 data class WidgetTextSizes(
     val weekdayHeaderSp: Float,
     val dayNumberSp: Float,
     val scheduleSp: Float,
     val dayBadgeSizeDp: Float,
-    /** 칸 안에 표시할 일정 최대 건수. */
-    val maxSchedulesVisible: Int,
+    /** 칸 하나에 쌓을 수 있는 최대 막대(레인) 수. 넘치면 "+N"으로 표시. */
+    val maxBarsPerCell: Int,
+    /** 막대 한 줄의 높이. 4/5단계에서 막대 2개를 확보하려고 여백을 줄인 값. */
+    val barHeightDp: Float,
 )
 
-private const val BASE_WEEKDAY_HEADER_SP = 10f
-private const val BASE_DAY_NUMBER_SP = 12f
-private const val BASE_SCHEDULE_SP = 10f
-private const val BASE_DAY_BADGE_SIZE_DP = 18f
+private data class SizeStep(
+    val weekdayHeaderSp: Float,
+    val dayNumberSp: Float,
+    val dayBadgeSizeDp: Float,
+    val scheduleSp: Float,
+    val maxBarsPerCell: Int,
+    val barHeightDp: Float,
+)
 
-// 1단계 임시 배율표(2단계에서 고정 sp 표로 교체 예정).
-private val SCALE_BY_STEP = mapOf(
-    1 to 0.85f,
-    2 to 0.92f,
-    3 to 1.00f,
-    4 to 1.15f,
-    5 to 1.30f,
+// 글자크기 5단계 고정 표. 일정 막대 텍스트는 10~14sp 범위를 확실히 반영하고,
+// 4/5단계도 "월간 뷰 정보량 부족" 피드백에 따라 막대를 최소 2개는 보장한다(넘치면 +N).
+private val SIZE_TABLE = mapOf(
+    1 to SizeStep(weekdayHeaderSp = 10f, dayNumberSp = 12f, dayBadgeSizeDp = 20f, scheduleSp = 10f, maxBarsPerCell = 3, barHeightDp = 16f),
+    2 to SizeStep(weekdayHeaderSp = 11f, dayNumberSp = 13f, dayBadgeSizeDp = 22f, scheduleSp = 11f, maxBarsPerCell = 3, barHeightDp = 16f),
+    3 to SizeStep(weekdayHeaderSp = 12f, dayNumberSp = 14f, dayBadgeSizeDp = 24f, scheduleSp = 12f, maxBarsPerCell = 3, barHeightDp = 16f),
+    4 to SizeStep(weekdayHeaderSp = 13f, dayNumberSp = 15f, dayBadgeSizeDp = 26f, scheduleSp = 13f, maxBarsPerCell = 2, barHeightDp = 14f),
+    5 to SizeStep(weekdayHeaderSp = 14f, dayNumberSp = 16f, dayBadgeSizeDp = 28f, scheduleSp = 14f, maxBarsPerCell = 2, barHeightDp = 12f),
 )
 
 /** 글자크기 단계(1~5)를 실제 sp/dp 값으로 변환한다. */
 fun resolveTextSizes(step: Int): WidgetTextSizes {
-    val scale = SCALE_BY_STEP[step] ?: SCALE_BY_STEP.getValue(DEFAULT_FONT_SCALE_STEP)
+    val s = SIZE_TABLE[step] ?: SIZE_TABLE.getValue(DEFAULT_FONT_SCALE_STEP)
     return WidgetTextSizes(
-        weekdayHeaderSp = BASE_WEEKDAY_HEADER_SP * scale,
-        dayNumberSp = BASE_DAY_NUMBER_SP * scale,
-        scheduleSp = BASE_SCHEDULE_SP * scale,
-        dayBadgeSizeDp = BASE_DAY_BADGE_SIZE_DP * scale,
-        maxSchedulesVisible = if (step >= 5) 2 else 3,
+        weekdayHeaderSp = s.weekdayHeaderSp,
+        dayNumberSp = s.dayNumberSp,
+        scheduleSp = s.scheduleSp,
+        dayBadgeSizeDp = s.dayBadgeSizeDp,
+        maxBarsPerCell = s.maxBarsPerCell,
+        barHeightDp = s.barHeightDp,
     )
 }
 

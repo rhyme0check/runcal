@@ -138,6 +138,7 @@ private fun WidgetConfigScreen(
     var expandedPresetId by remember { mutableStateOf<String?>(null) }
     var fontStep by remember { mutableIntStateOf(DEFAULT_FONT_SCALE_STEP) }
     var opacity by remember { mutableFloatStateOf(DEFAULT_BACKGROUND_OPACITY) }
+    var showWeekNumber by remember { mutableStateOf(false) }
     var loaded by remember { mutableStateOf(false) }
 
     LaunchedEffect(permissionGranted) {
@@ -149,6 +150,7 @@ private fun WidgetConfigScreen(
         currentPresetIndex = existing.currentPresetIndex
         fontStep = existing.fontScaleStep
         opacity = existing.backgroundOpacity
+        showWeekNumber = existing.showWeekNumber
         loaded = true
     }
 
@@ -223,6 +225,11 @@ private fun WidgetConfigScreen(
                 valueRange = 0f..1f,
             )
 
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Checkbox(checked = showWeekNumber, onCheckedChange = { showWeekNumber = it })
+                Text(text = "주차 번호 표시", style = MaterialTheme.typography.titleMedium)
+            }
+
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = {
                     scope.launch {
@@ -237,6 +244,7 @@ private fun WidgetConfigScreen(
                             currentPresetIndex = currentPresetIndex,
                             fontScaleStep = fontStep,
                             backgroundOpacity = opacity,
+                            showWeekNumber = showWeekNumber,
                         )
                         onSaved()
                     }

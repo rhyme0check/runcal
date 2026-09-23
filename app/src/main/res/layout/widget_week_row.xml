@@ -6,6 +6,14 @@
     android:orientation="horizontal"
     android:weightSum="7">
 
+    <TextView
+        android:id="@+id/week_number_text"
+        android:layout_width="20dp"
+        android:layout_height="match_parent"
+        android:gravity="center"
+        android:textSize="9sp"
+        android:visibility="gone" />
+
     <FrameLayout
         android:id="@+id/day_slot_0"
         android:layout_width="0dp"

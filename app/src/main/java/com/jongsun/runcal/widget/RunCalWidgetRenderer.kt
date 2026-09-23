@@ -6,19 +6,27 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.util.Log
 import android.util.TypedValue
 import android.view.View
 import android.widget.RemoteViews
 import com.jongsun.runcal.MainActivity
 import com.jongsun.runcal.R
 import com.jongsun.runcal.data.CalendarRepository
+import com.jongsun.runcal.data.EventItem
 import com.jongsun.runcal.data.hasCalendarReadPermission
-import com.jongsun.runcal.data.monthRangeMillis
+import com.jongsun.runcal.ui.calendar.EventBar
+import com.jongsun.runcal.ui.calendar.MonthGridDay
+import com.jongsun.runcal.ui.calendar.buildMonthGridWeeks
+import com.jongsun.runcal.ui.calendar.monthGridDateRange
 import java.time.DayOfWeek
 import java.time.Instant
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.ZoneId
+import java.time.temporal.WeekFields
+
+private const val TAG = "RunCal"
 
 /** 브로드캐스트 액션/appWidgetId 등 렌더러와 RunCalWidgetActionReceiver가 함께 쓰는 상수. */
 object WidgetActionContract {
@@ -70,6 +78,7 @@ object RunCalWidgetRenderer {
             }
         }
 
+        val renderStartMillis = System.currentTimeMillis()
         val today = LocalDate.now()
         val currentActualYearMonth = YearMonth.from(today)
         val settings = resolveAutoReturn(context, appWidgetId, today, currentActualYearMonth)
@@ -79,35 +88,65 @@ object RunCalWidgetRenderer {
         val textSizes = resolveTextSizes(settings.fontScaleStep)
         val backgroundColorInt = resolveBackgroundColorInt(context, settings.backgroundOpacity)
 
-        val eventsByDay = if (preset.calendarIds != null && preset.calendarIds.isEmpty()) {
-            emptyMap()
+        // 일요일 시작 6주 그리드. 다일간 일정이 그리드 앞뒤(전/다음 달로 삐져나온 날짜)에 걸칠 수 있어
+        // 캘린더 조회 범위도 "이번 달"이 아니라 그리드가 실제로 덮는 전체 구간으로 잡는다.
+        val weeks = buildMonthGridWeeks(displayedYearMonth, DayOfWeek.SUNDAY)
+        val zone = ZoneId.systemDefault()
+        val events = if (preset.calendarIds != null && preset.calendarIds.isEmpty()) {
+            emptyList()
         } else {
             val repository = CalendarRepository(context)
-            val (start, end) = monthRangeMillis(displayedYearMonth)
-            val events = repository.getEvents(start, end, calendarIds = preset.calendarIds?.toList())
-            groupEventsByDay(events, displayedYearMonth)
+            val (start, endExclusive) = monthGridDateRange(weeks)
+            val startMillis = start.atStartOfDay(zone).toInstant().toEpochMilli()
+            val endMillis = endExclusive.atStartOfDay(zone).toInstant().toEpochMilli()
+            repository.getEvents(startMillis, endMillis, calendarIds = preset.calendarIds?.toList())
         }
-        val weeks = buildMonthGrid(displayedYearMonth, today, eventsByDay)
+        Log.d(TAG, "buildRemoteViews: appWidgetId=$appWidgetId fetched ${events.size} event(s)")
 
         val root = RemoteViews(context.packageName, R.layout.widget_root)
         root.setInt(R.id.widget_background, "setColorFilter", backgroundColorInt)
 
         bindHeaderRow1(context, root, appWidgetId, preset, displayedYearMonth)
         bindHeaderRow2(context, root, appWidgetId, displayedYearMonth, isCurrentMonth)
+        root.setViewVisibility(R.id.week_number_header, if (settings.showWeekNumber) View.VISIBLE else View.GONE)
 
         // RemoteViews.addView()는 같은 레이아웃을 다시 적용할 때 기존 뷰 트리에 누적되는 경우가 있어
         // (호스트가 매번 새로 inflate하지 않고 기존 트리에 reapply하는 최적화 경로를 타면), 매번 채우기
         // 전에 반드시 비워야 6주 그리드가 중복되지 않는다.
         root.removeAllViews(R.id.week_rows_container)
         weeks.forEachIndexed { weekIndex, week ->
+            val weekBars = computeWidgetWeekBars(week, events, textSizes.maxBarsPerCell, zone)
             val weekRow = RemoteViews(context.packageName, R.layout.widget_week_row)
-            week.forEachIndexed { dayIndex, day ->
-                val cell = buildDayCell(context, appWidgetId, weekIndex, dayIndex, day, textSizes)
+
+            weekRow.setViewVisibility(R.id.week_number_text, if (settings.showWeekNumber) View.VISIBLE else View.GONE)
+            if (settings.showWeekNumber) {
+                // ISO 8601: 그 주의 목요일이 속한 연도 기준 주차. 그리드가 일요일 시작이라도
+                // 목요일(인덱스 4)은 항상 그 주 안에 있어 이 값으로 계산하면 연말/연초 경계에서도 정확하다.
+                val thursday = week.days[4].date
+                val weekNumber = thursday.get(WeekFields.ISO.weekOfWeekBasedYear())
+                weekRow.setTextViewText(R.id.week_number_text, weekNumber.toString())
+                weekRow.setTextColor(R.id.week_number_text, RunCalWidgetColorRes.onBackgroundDim(context))
+            }
+
+            week.days.forEachIndexed { dayIndex, day ->
+                val barsForCol = weekBars.lanes.map { lane -> lane.getOrNull(dayIndex) }
+                val cell = buildDayCell(
+                    context = context,
+                    appWidgetId = appWidgetId,
+                    weekIndex = weekIndex,
+                    dayIndex = dayIndex,
+                    day = day,
+                    today = today,
+                    barsForCol = barsForCol,
+                    overflowCount = weekBars.overflowCountByCol[dayIndex],
+                    textSizes = textSizes,
+                )
                 weekRow.addView(DAY_SLOT_IDS[dayIndex], cell)
             }
             root.addView(R.id.week_rows_container, weekRow)
         }
 
+        Log.d(TAG, "buildRemoteViews: appWidgetId=$appWidgetId built in ${System.currentTimeMillis() - renderStartMillis}ms")
         return root
     }
 
@@ -170,14 +209,20 @@ object RunCalWidgetRenderer {
         appWidgetId: Int,
         weekIndex: Int,
         dayIndex: Int,
-        day: CalendarDay,
+        day: MonthGridDay,
+        today: LocalDate,
+        barsForCol: List<EventBar?>,
+        overflowCount: Int,
         textSizes: WidgetTextSizes,
     ): RemoteViews {
+        val isToday = day.date == today
         val cell = RemoteViews(context.packageName, R.layout.widget_day_cell)
         cell.setTextViewText(R.id.day_number_text, day.date.dayOfMonth.toString())
         cell.setTextViewTextSize(R.id.day_number_text, TypedValue.COMPLEX_UNIT_SP, textSizes.dayNumberSp)
+        cell.setViewLayoutWidth(R.id.day_number_frame, textSizes.dayBadgeSizeDp, TypedValue.COMPLEX_UNIT_DIP)
+        cell.setViewLayoutHeight(R.id.day_number_frame, textSizes.dayBadgeSizeDp, TypedValue.COMPLEX_UNIT_DIP)
 
-        if (day.isToday) {
+        if (isToday) {
             cell.setViewVisibility(R.id.today_badge, View.VISIBLE)
             cell.setInt(R.id.today_badge, "setColorFilter", RunCalWidgetColorRes.todayBackground(context))
             cell.setTextColor(R.id.day_number_text, RunCalWidgetColorRes.onTodayBackground(context))
@@ -186,16 +231,33 @@ object RunCalWidgetRenderer {
             cell.setTextColor(R.id.day_number_text, dayNumberColor(context, day))
         }
 
-        day.schedules.take(textSizes.maxSchedulesVisible).forEach { schedule ->
-            val line = RemoteViews(context.packageName, R.layout.widget_event_line)
-            line.setInt(R.id.event_dot, "setColorFilter", schedule.dotColor)
-            line.setTextViewText(R.id.event_text, schedule.text)
-            line.setTextViewTextSize(R.id.event_text, TypedValue.COMPLEX_UNIT_SP, textSizes.scheduleSp)
-            line.setTextColor(
-                R.id.event_text,
-                if (day.isCurrentMonth) RunCalWidgetColorRes.scheduleText(context) else RunCalWidgetColorRes.scheduleTextDim(context),
-            )
-            cell.addView(R.id.day_events_container, line)
+        // 새로 만든 day_events_container라 이론상 비어있지만, addView 누적 버그를 한 번 겪었으니
+        // 방어적으로 한 번 더 비운다.
+        cell.removeAllViews(R.id.day_events_container)
+
+        // "+N"은 칸의 막대 한도(maxBarsPerCell)를 넘어서는 추가 줄이 아니라, 그 한도 안의 마지막 한 줄을
+        // 대신 차지해야 한다(안 그러면 한 칸에 maxBarsPerCell+1줄이 들어가 아래 주 행과 겹친다).
+        // 레인이 이미 꽉 찬 상태에서 이 날짜의 마지막 레인에 실제 막대가 있었다면, 그 막대 하나도
+        // "가려짐"으로 쳐서 +N 숫자에 포함한다.
+        var visibleBars = barsForCol
+        var displayOverflow = overflowCount
+        if (overflowCount > 0 && barsForCol.size >= textSizes.maxBarsPerCell) {
+            val lastBar = barsForCol.lastOrNull()
+            if (lastBar != null) {
+                visibleBars = barsForCol.dropLast(1)
+                displayOverflow += 1
+            }
+        }
+
+        visibleBars.forEach { bar ->
+            // 제목은 막대의 "진짜" 시작일이 아니라, 이번 주 행에서 이 막대가 처음 보이는 칸에서만
+            // 보여준다 — 여러 주에 걸치는 일정은 각 행에서 한 번씩 제목이 다시 보여야 한다
+            // (매주 앞쪽으로 스크롤해 원래 시작일을 확인할 필요가 없도록).
+            val showText = bar != null && dayIndex == bar.startCol
+            cell.addView(R.id.day_events_container, buildBarView(context, bar, showText, textSizes))
+        }
+        if (displayOverflow > 0) {
+            cell.addView(R.id.day_events_container, buildOverflowView(context, displayOverflow, textSizes))
         }
 
         val dayIntent = Intent(context, MainActivity::class.java).apply {
@@ -208,6 +270,46 @@ object RunCalWidgetRenderer {
             PendingIntent.getActivity(context, requestCode, dayIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE),
         )
         return cell
+    }
+
+    /**
+     * 레인 한 칸을 그린다. [bar]가 null이면(이 칸엔 일정이 없지만 다른 칸에 걸친 레인이라 자리는 차지)
+     * 배경 없는 투명 스페이서로 그려 다른 요일과 세로 정렬을 맞춘다.
+     */
+    private fun buildBarView(context: Context, bar: EventBar?, showText: Boolean, textSizes: WidgetTextSizes): RemoteViews {
+        val view = RemoteViews(context.packageName, R.layout.widget_event_bar)
+        view.setViewLayoutHeight(R.id.bar_root, textSizes.barHeightDp, TypedValue.COMPLEX_UNIT_DIP)
+        view.setTextViewTextSize(R.id.bar_text, TypedValue.COMPLEX_UNIT_SP, textSizes.scheduleSp)
+
+        if (bar == null) {
+            view.setViewVisibility(R.id.bar_background, View.GONE)
+            view.setTextViewText(R.id.bar_text, "")
+            return view
+        }
+
+        val cornerDrawable = when {
+            bar.isTrueStart && bar.isTrueEnd -> R.drawable.widget_bar_single
+            bar.isTrueStart -> R.drawable.widget_bar_start
+            bar.isTrueEnd -> R.drawable.widget_bar_end
+            else -> R.drawable.widget_bar_middle
+        }
+        // TextView는 setColorFilter를 지원하지 않아 배경은 별도 ImageView(bar_background)에 그린다.
+        view.setViewVisibility(R.id.bar_background, View.VISIBLE)
+        view.setImageViewResource(R.id.bar_background, cornerDrawable)
+        view.setInt(R.id.bar_background, "setColorFilter", bar.event.color)
+        view.setTextViewText(R.id.bar_text, if (showText) bar.event.title else "")
+        view.setTextColor(R.id.bar_text, contrastingTextColor(bar.event.color))
+        return view
+    }
+
+    private fun buildOverflowView(context: Context, count: Int, textSizes: WidgetTextSizes): RemoteViews {
+        val view = RemoteViews(context.packageName, R.layout.widget_event_bar)
+        view.setViewLayoutHeight(R.id.bar_root, textSizes.barHeightDp, TypedValue.COMPLEX_UNIT_DIP)
+        view.setViewVisibility(R.id.bar_background, View.GONE)
+        view.setTextViewTextSize(R.id.bar_text, TypedValue.COMPLEX_UNIT_SP, textSizes.scheduleSp)
+        view.setTextViewText(R.id.bar_text, "+$count")
+        view.setTextColor(R.id.bar_text, RunCalWidgetColorRes.scheduleTextDim(context))
+        return view
     }
 
     /**
@@ -236,7 +338,7 @@ object RunCalWidgetRenderer {
     }
 }
 
-private fun dayNumberColor(context: Context, day: CalendarDay): Int = when {
+private fun dayNumberColor(context: Context, day: MonthGridDay): Int = when {
     !day.isCurrentMonth -> when (day.date.dayOfWeek) {
         DayOfWeek.SUNDAY -> RunCalWidgetColorRes.sundayDim(context)
         DayOfWeek.SATURDAY -> RunCalWidgetColorRes.saturdayDim(context)

@@ -16,6 +16,7 @@ private object Keys {
     const val BACKGROUND_OPACITY = "background_opacity"
     const val VIEWING_YEAR_MONTH = "viewing_year_month"
     const val LAST_NAVIGATED_AT_MILLIS = "last_navigated_at_millis"
+    const val SHOW_WEEK_NUMBER = "show_week_number"
 }
 
 private fun prefsFor(context: Context, appWidgetId: Int): SharedPreferences =
@@ -46,6 +47,7 @@ private fun SharedPreferences.toWidgetFilterSettings(): WidgetFilterSettings {
         backgroundOpacity = getFloat(Keys.BACKGROUND_OPACITY, DEFAULT_BACKGROUND_OPACITY),
         viewingYearMonth = viewingYearMonth,
         lastNavigatedAtMillis = getLong(Keys.LAST_NAVIGATED_AT_MILLIS, 0L),
+        showWeekNumber = getBoolean(Keys.SHOW_WEEK_NUMBER, false),
     )
 }
 
@@ -60,6 +62,7 @@ private fun SharedPreferences.Editor.applyWidgetFilterSettings(settings: WidgetF
         putString(Keys.VIEWING_YEAR_MONTH, settings.viewingYearMonth.toString())
     }
     putLong(Keys.LAST_NAVIGATED_AT_MILLIS, settings.lastNavigatedAtMillis)
+    putBoolean(Keys.SHOW_WEEK_NUMBER, settings.showWeekNumber)
     return this
 }
 
@@ -103,11 +106,13 @@ suspend fun saveWidgetFilterSettings(
     currentPresetIndex: Int,
     fontScaleStep: Int,
     backgroundOpacity: Float,
+    showWeekNumber: Boolean,
 ) {
     Log.d(
         TAG,
         "saveWidgetFilterSettings: appWidgetId=$appWidgetId writing presets=${presets.size} " +
-            "currentPresetIndex=$currentPresetIndex fontScaleStep=$fontScaleStep backgroundOpacity=$backgroundOpacity",
+            "currentPresetIndex=$currentPresetIndex fontScaleStep=$fontScaleStep backgroundOpacity=$backgroundOpacity " +
+            "showWeekNumber=$showWeekNumber",
     )
     applyWidgetState(context, appWidgetId) { current ->
         current.copy(
@@ -115,6 +120,7 @@ suspend fun saveWidgetFilterSettings(
             currentPresetIndex = currentPresetIndex,
             fontScaleStep = fontScaleStep,
             backgroundOpacity = backgroundOpacity,
+            showWeekNumber = showWeekNumber,
         )
     }
 }
