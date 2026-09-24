@@ -70,6 +70,66 @@
         </receiver>
 
         <receiver
+            android:name=".widget.RunCalMonthlyStandardWidgetProvider"
+            android:exported="false"
+            android:label="@string/runcal_monthly_standard_widget_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/runcal_monthly_standard_widget_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.RunCalMonthlyCompactWidgetProvider"
+            android:exported="false"
+            android:label="@string/runcal_monthly_compact_widget_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/runcal_monthly_compact_widget_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.RunCalTodayMiniWidgetProvider"
+            android:exported="false"
+            android:label="@string/runcal_today_mini_widget_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/runcal_today_mini_widget_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.RunCalTodayHorizontalWidgetProvider"
+            android:exported="false"
+            android:label="@string/runcal_today_horizontal_widget_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/runcal_today_horizontal_widget_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.RunCalTodayVerticalWidgetProvider"
+            android:exported="false"
+            android:label="@string/runcal_today_vertical_widget_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/runcal_today_vertical_widget_info" />
+        </receiver>
+
+        <receiver
             android:name=".widget.RunCalWidgetActionReceiver"
             android:exported="false" />
     </application>

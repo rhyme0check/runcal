@@ -2,4 +2,19 @@
     <string name="app_name">RunCal</string>
     <string name="runcal_calendar_widget_label">RunCal 캘린더</string>
     <string name="runcal_calendar_widget_description">이번 달 일정을 한눈에 보여주는 RunCal 월간 캘린더 위젯</string>
+
+    <string name="runcal_monthly_standard_widget_label">RunCal 캘린더 (표준)</string>
+    <string name="runcal_monthly_standard_widget_description">날짜마다 일정 1건을 보여주는 RunCal 월간 캘린더 위젯</string>
+
+    <string name="runcal_monthly_compact_widget_label">RunCal 캘린더 (컴팩트)</string>
+    <string name="runcal_monthly_compact_widget_description">일정이 있는 날짜를 점으로만 표시하는 작은 RunCal 월간 캘린더 위젯</string>
+
+    <string name="runcal_today_mini_widget_label">RunCal 오늘 (미니)</string>
+    <string name="runcal_today_mini_widget_description">오늘 날짜와 다음 일정을 보여주는 RunCal 위젯</string>
+
+    <string name="runcal_today_horizontal_widget_label">RunCal 오늘 (가로)</string>
+    <string name="runcal_today_horizontal_widget_description">오늘 일정 목록을 보여주는 RunCal 위젯</string>
+
+    <string name="runcal_today_vertical_widget_label">RunCal 오늘 (세로)</string>
+    <string name="runcal_today_vertical_widget_description">오늘과 내일 일정 목록을 보여주는 RunCal 위젯</string>
 </resources>

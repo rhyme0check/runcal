@@ -140,6 +140,8 @@ private fun WidgetConfigScreen(
     var opacity by remember { mutableFloatStateOf(DEFAULT_BACKGROUND_OPACITY) }
     var showWeekNumber by remember { mutableStateOf(false) }
     var loaded by remember { mutableStateOf(false) }
+    // 위젯 종류에 따라 불필요한 항목(예: 오늘 위젯의 주차 번호)을 숨긴다.
+    val isMonthlyWidget = remember(appWidgetId) { WidgetKind.forAppWidgetId(context, appWidgetId).isMonthly }
 
     LaunchedEffect(permissionGranted) {
         if (!permissionGranted) return@LaunchedEffect
@@ -225,9 +227,11 @@ private fun WidgetConfigScreen(
                 valueRange = 0f..1f,
             )
 
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                Checkbox(checked = showWeekNumber, onCheckedChange = { showWeekNumber = it })
-                Text(text = "주차 번호 표시", style = MaterialTheme.typography.titleMedium)
+            if (isMonthlyWidget) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    Checkbox(checked = showWeekNumber, onCheckedChange = { showWeekNumber = it })
+                    Text(text = "주차 번호 표시", style = MaterialTheme.typography.titleMedium)
+                }
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

@@ -1,0 +1,37 @@
+package com.jongsun.runcal.widget
+
+import android.appwidget.AppWidgetManager
+import android.content.Context
+
+/** 위젯 6종의 종류. 렌더러/설정 화면이 이 값으로 분기한다. */
+enum class WidgetKind {
+    MONTHLY_EXPANDED,
+    MONTHLY_STANDARD,
+    MONTHLY_COMPACT,
+    TODAY_MINI,
+    TODAY_HORIZONTAL,
+    TODAY_VERTICAL,
+    ;
+
+    val isMonthly: Boolean get() = this == MONTHLY_EXPANDED || this == MONTHLY_STANDARD || this == MONTHLY_COMPACT
+
+    companion object {
+        /**
+         * appWidgetId 자체는 종류를 모르므로, Android가 이미 관리하는 appWidgetId→provider 매핑을
+         * 물어봐서 역으로 구한다. 별도 SharedPreferences에 "이 위젯은 무슨 종류"를 저장하지 않는
+         * 이유도 이거다 — 저장해두면 어긋날 수 있지만, 이 방법은 항상 실제 배치된 provider와 일치한다.
+         */
+        fun forAppWidgetId(context: Context, appWidgetId: Int): WidgetKind {
+            val providerClassName = AppWidgetManager.getInstance(context)
+                .getAppWidgetInfo(appWidgetId)?.provider?.className
+            return when (providerClassName) {
+                RunCalMonthlyStandardWidgetProvider::class.java.name -> MONTHLY_STANDARD
+                RunCalMonthlyCompactWidgetProvider::class.java.name -> MONTHLY_COMPACT
+                RunCalTodayMiniWidgetProvider::class.java.name -> TODAY_MINI
+                RunCalTodayHorizontalWidgetProvider::class.java.name -> TODAY_HORIZONTAL
+                RunCalTodayVerticalWidgetProvider::class.java.name -> TODAY_VERTICAL
+                else -> MONTHLY_EXPANDED
+            }
+        }
+    }
+}
