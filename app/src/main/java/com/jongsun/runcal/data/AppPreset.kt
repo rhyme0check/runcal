@@ -10,6 +10,9 @@ data class AppPreset(
     val name: String,
     val colorArgb: Int,
     val calendarIds: Set<Long>? = null,
+    // null = 이 프리셋에 Notion DB 없음(전체 아님) — calendarIds의 null=전체와 의도적으로 비대칭.
+    // 기존에 저장된 프리셋이 새 Notion DB 등록 후에도 그대로 예전처럼 동작하도록 opt-in으로 둔다.
+    val notionDatabaseIds: Set<String>? = null,
 )
 
 val APP_PRESET_COLOR_PALETTE = listOf(

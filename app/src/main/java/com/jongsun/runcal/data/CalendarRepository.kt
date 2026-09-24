@@ -5,6 +5,9 @@ import android.content.ContentValues
 import android.content.Context
 import android.provider.CalendarContract
 import android.util.Log
+import com.jongsun.runcal.data.source.EventSource
+import com.jongsun.runcal.data.source.EventSourceKind
+import com.jongsun.runcal.data.source.SourceRef
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.TimeZone
@@ -14,7 +17,15 @@ import kotlinx.coroutines.withContext
 private const val TAG = "RunCal"
 
 /** CalendarContract 기반 캘린더/일정 접근 레이어. 모든 접근 지점은 권한 가드 + SecurityException 방어를 거친다. */
-class CalendarRepository(private val context: Context) {
+class CalendarRepository(private val context: Context) : EventSource {
+
+    override val kind: EventSourceKind = EventSourceKind.CALENDAR
+
+    /** [EventSource] 어댑터. 기존 [getEvents] 호출부는 전혀 바뀌지 않고, 이 오버로드만 [SourceRef]를 풀어 위임한다. */
+    override suspend fun getEvents(startMillis: Long, endMillis: Long, refs: Set<SourceRef>?): List<EventItem> {
+        val calendarIds = refs?.filterIsInstance<SourceRef.Calendar>()?.map { it.calendarId }
+        return getEvents(startMillis, endMillis, calendarIds)
+    }
 
     private val resolver get() = context.contentResolver
 
