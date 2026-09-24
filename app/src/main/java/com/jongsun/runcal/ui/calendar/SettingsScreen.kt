@@ -59,6 +59,7 @@ import com.jongsun.runcal.data.AppPreset
 import com.jongsun.runcal.data.CalendarInfo
 import com.jongsun.runcal.data.MAX_APP_FONT_SCALE_STEP
 import com.jongsun.runcal.data.MIN_APP_FONT_SCALE_STEP
+import com.jongsun.runcal.export.WeeklyExportDialog
 import com.jongsun.runcal.widget.RunCalCalendarWidgetProvider
 import com.jongsun.runcal.widget.RunCalMonthlyCompactWidgetProvider
 import com.jongsun.runcal.widget.RunCalMonthlyStandardWidgetProvider
@@ -86,6 +87,7 @@ fun SettingsScreen(viewModel: CalendarViewModel, modifier: Modifier = Modifier) 
     var statusMessage by remember { mutableStateOf<String?>(null) }
     var editingPreset by remember { mutableStateOf<AppPreset?>(null) }
     var showAddPresetDialog by remember { mutableStateOf(false) }
+    var showExportDialog by remember { mutableStateOf(false) }
 
     LazyColumn(modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
         item {
@@ -202,6 +204,12 @@ fun SettingsScreen(viewModel: CalendarViewModel, modifier: Modifier = Modifier) 
 
         item {
             HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+            Text(text = "내보내기", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 8.dp))
+            Button(onClick = { showExportDialog = true }) { Text("주간표 내보내기") }
+        }
+
+        item {
+            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
             Text(text = "테스트 도구", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = {
@@ -250,6 +258,9 @@ fun SettingsScreen(viewModel: CalendarViewModel, modifier: Modifier = Modifier) 
                 editingPreset = null
             },
         )
+    }
+    if (showExportDialog) {
+        WeeklyExportDialog(viewModel = viewModel, onDismiss = { showExportDialog = false })
     }
 }
 

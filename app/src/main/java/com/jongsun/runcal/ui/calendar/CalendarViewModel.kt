@@ -141,6 +141,20 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
         loadingMonths.clear()
     }
 
+    /**
+     * 월 캐시를 거치지 않고 임의의 [startMillis, endMillis) 범위 이벤트를 직접 조회한다.
+     * 주간표 내보내기처럼 월 경계를 넘나드는 범위를 한 번만 조회할 때 쓴다.
+     * 표시 캘린더 필터(visibleCalendarIds)는 동일하게 적용된다.
+     */
+    suspend fun eventsInRange(startMillis: Long, endMillis: Long): List<EventItem> {
+        val calendarIds = _visibleCalendarIds.value
+        return if (calendarIds != null && calendarIds.isEmpty()) {
+            emptyList()
+        } else {
+            repository.getEvents(startMillis, endMillis, calendarIds?.toList())
+        }
+    }
+
     /** [date]가 속한 달의 캐시에서 해당 날짜에 걸친 이벤트만 걸러낸다. */
     fun eventsForDate(cache: Map<YearMonth, List<EventItem>>, date: LocalDate): List<EventItem> =
         cache[YearMonth.from(date)].orEmpty().filter { it.occursOn(date, zone) }
