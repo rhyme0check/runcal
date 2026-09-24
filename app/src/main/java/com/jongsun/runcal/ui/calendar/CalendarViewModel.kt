@@ -3,10 +3,13 @@ package com.jongsun.runcal.ui.calendar
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.jongsun.runcal.data.AppPreset
 import com.jongsun.runcal.data.AppSettingsRepository
 import com.jongsun.runcal.data.CalendarInfo
 import com.jongsun.runcal.data.CalendarRepository
 import com.jongsun.runcal.data.DEFAULT_APP_FONT_SCALE_STEP
+import com.jongsun.runcal.data.DEFAULT_APP_PRESET
+import com.jongsun.runcal.data.DEFAULT_APP_PRESET_ID
 import com.jongsun.runcal.data.DEFAULT_WEEK_START_DAY
 import com.jongsun.runcal.data.EventItem
 import com.jongsun.runcal.data.occursOn
@@ -52,6 +55,12 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
     private val _appFontScaleStep = MutableStateFlow(DEFAULT_APP_FONT_SCALE_STEP)
     val appFontScaleStep: StateFlow<Int> = _appFontScaleStep.asStateFlow()
 
+    private val _presets = MutableStateFlow(listOf(DEFAULT_APP_PRESET))
+    val presets: StateFlow<List<AppPreset>> = _presets.asStateFlow()
+
+    private val _activePresetId = MutableStateFlow(DEFAULT_APP_PRESET_ID)
+    val activePresetId: StateFlow<String> = _activePresetId.asStateFlow()
+
     private val _calendars = MutableStateFlow<List<CalendarInfo>>(emptyList())
     val calendars: StateFlow<List<CalendarInfo>> = _calendars.asStateFlow()
 
@@ -69,6 +78,8 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
                 _weekStartDay.value = settings.weekStartDay
                 _visibleCalendarIds.value = settings.visibleCalendarIds
                 _appFontScaleStep.value = settings.fontScaleStep
+                _presets.value = settings.presets
+                _activePresetId.value = settings.activePresetId
                 if (settingsInitialized && (calendarFilterChanged || weekStartChanged)) {
                     invalidateCache()
                     ensureMonthLoaded(_visibleYearMonth.value, force = true)
@@ -156,6 +167,14 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
     suspend fun setWeekStartDay(day: DayOfWeek) = appSettingsRepository.setWeekStartDay(day)
 
     suspend fun setAppFontScaleStep(step: Int) = appSettingsRepository.setFontScaleStep(step)
+
+    /** 프리셋을 적용한다 — 표시 캘린더를 프리셋 값으로 덮어쓰고 활성 프리셋으로 표시한다. */
+    suspend fun applyPreset(preset: AppPreset) {
+        appSettingsRepository.setVisibleCalendarIds(preset.calendarIds)
+        appSettingsRepository.setActivePresetId(preset.id)
+    }
+
+    suspend fun savePresets(presets: List<AppPreset>) = appSettingsRepository.setPresets(presets)
 
     fun pageForYearMonth(yearMonth: YearMonth): Int =
         MONTH_ANCHOR_PAGE + ChronoUnit.MONTHS.between(anchorYearMonth, yearMonth).toInt()

@@ -22,13 +22,17 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,6 +49,7 @@ import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.YearMonth
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MonthlyScreen(viewModel: CalendarViewModel, modifier: Modifier = Modifier) {
     val selectedDate by viewModel.selectedDate.collectAsStateWithLifecycle()
@@ -71,9 +76,12 @@ fun MonthlyScreen(viewModel: CalendarViewModel, modifier: Modifier = Modifier) {
         }
     }
 
+    // 탭한 날짜의 일정을 보여줄 하단 시트. null이면 시트를 숨긴다.
+    var sheetDate by remember { mutableStateOf<LocalDate?>(null) }
+
     Column(modifier = modifier.fillMaxSize()) {
         WeekdayHeaderRow(weekStartDay)
-        HorizontalPager(state = pagerState, modifier = Modifier.weight(1.3f)) { page ->
+        HorizontalPager(state = pagerState, modifier = Modifier.weight(1f)) { page ->
             val yearMonth = viewModel.yearMonthForPage(page)
             LaunchedEffect(yearMonth) { viewModel.ensureMonthLoaded(yearMonth) }
             val events = monthCache[yearMonth].orEmpty()
@@ -83,15 +91,23 @@ fun MonthlyScreen(viewModel: CalendarViewModel, modifier: Modifier = Modifier) {
                 events = events,
                 today = viewModel.today,
                 selectedDate = selectedDate,
-                onDateClick = { viewModel.selectDate(it) },
+                onDateClick = { date ->
+                    viewModel.selectDate(date)
+                    sheetDate = date
+                },
             )
         }
-        HorizontalDivider()
-        SelectedDateAgenda(
-            date = selectedDate,
-            events = remember(monthCache, selectedDate) { viewModel.eventsForDate(monthCache, selectedDate) },
-            modifier = Modifier.weight(1f),
-        )
+    }
+
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    sheetDate?.let { date ->
+        ModalBottomSheet(onDismissRequest = { sheetDate = null }, sheetState = sheetState) {
+            SelectedDateAgenda(
+                date = date,
+                events = remember(monthCache, date) { viewModel.eventsForDate(monthCache, date) },
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
     }
 }
 

@@ -4,24 +4,40 @@ import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import android.content.Intent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -34,14 +50,24 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jongsun.runcal.R
+import com.jongsun.runcal.data.APP_PRESET_COLOR_PALETTE
+import com.jongsun.runcal.data.AppPreset
 import com.jongsun.runcal.data.CalendarInfo
 import com.jongsun.runcal.data.MAX_APP_FONT_SCALE_STEP
 import com.jongsun.runcal.data.MIN_APP_FONT_SCALE_STEP
 import com.jongsun.runcal.widget.RunCalCalendarWidgetProvider
+import com.jongsun.runcal.widget.RunCalMonthlyCompactWidgetProvider
+import com.jongsun.runcal.widget.RunCalMonthlyStandardWidgetProvider
+import com.jongsun.runcal.widget.RunCalTodayHorizontalWidgetProvider
+import com.jongsun.runcal.widget.RunCalTodayMiniWidgetProvider
+import com.jongsun.runcal.widget.RunCalTodayVerticalWidgetProvider
 import com.jongsun.runcal.widget.RunCalWidgetConfigActivity
 import java.time.DayOfWeek
+import java.util.UUID
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
@@ -51,11 +77,15 @@ fun SettingsScreen(viewModel: CalendarViewModel, modifier: Modifier = Modifier) 
     val visibleCalendarIds by viewModel.visibleCalendarIds.collectAsStateWithLifecycle()
     val weekStartDay by viewModel.weekStartDay.collectAsStateWithLifecycle()
     val fontScaleStep by viewModel.appFontScaleStep.collectAsStateWithLifecycle()
+    val presets by viewModel.presets.collectAsStateWithLifecycle()
+    val activePresetId by viewModel.activePresetId.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
 
     val selectedIds = visibleCalendarIds ?: calendars.map { it.id }.toSet()
     var localFontStep by remember(fontScaleStep) { mutableIntStateOf(fontScaleStep) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
+    var editingPreset by remember { mutableStateOf<AppPreset?>(null) }
+    var showAddPresetDialog by remember { mutableStateOf(false) }
 
     LazyColumn(modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
         item {
@@ -77,6 +107,61 @@ fun SettingsScreen(viewModel: CalendarViewModel, modifier: Modifier = Modifier) 
                 onCheckedChange = { checked ->
                     val newIds = if (checked) selectedIds + calendar.id else selectedIds - calendar.id
                     scope.launch { viewModel.setVisibleCalendarIds(newIds) }
+                },
+            )
+        }
+
+        item {
+            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(text = "필터 프리셋", style = MaterialTheme.typography.titleMedium)
+                TextButton(onClick = { showAddPresetDialog = true }) {
+                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("추가")
+                }
+            }
+            Text(
+                text = "표시할 캘린더 조합을 이름으로 저장해두고 한 번에 전환합니다.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        itemsIndexed(presets) { index, preset ->
+            PresetRow(
+                preset = preset,
+                isActive = preset.id == activePresetId,
+                canMoveUp = index > 0,
+                canMoveDown = index < presets.lastIndex,
+                canDelete = presets.size > 1,
+                onApply = { scope.launch { viewModel.applyPreset(preset) } },
+                onEdit = { editingPreset = preset },
+                onDelete = {
+                    scope.launch {
+                        val updated = presets.filterNot { it.id == preset.id }
+                        viewModel.savePresets(updated)
+                        if (activePresetId == preset.id) {
+                            viewModel.applyPreset(updated.first())
+                        }
+                    }
+                },
+                onMoveUp = {
+                    scope.launch {
+                        val mutable = presets.toMutableList()
+                        mutable.add(index - 1, mutable.removeAt(index))
+                        viewModel.savePresets(mutable)
+                    }
+                },
+                onMoveDown = {
+                    scope.launch {
+                        val mutable = presets.toMutableList()
+                        mutable.add(index + 1, mutable.removeAt(index))
+                        viewModel.savePresets(mutable)
+                    }
                 },
             )
         }
@@ -143,6 +228,29 @@ fun SettingsScreen(viewModel: CalendarViewModel, modifier: Modifier = Modifier) 
             }
         }
     }
+
+    if (showAddPresetDialog) {
+        PresetEditDialog(
+            existing = null,
+            calendars = calendars,
+            onDismiss = { showAddPresetDialog = false },
+            onSave = { newPreset ->
+                scope.launch { viewModel.savePresets(presets + newPreset) }
+                showAddPresetDialog = false
+            },
+        )
+    }
+    editingPreset?.let { preset ->
+        PresetEditDialog(
+            existing = preset,
+            calendars = calendars,
+            onDismiss = { editingPreset = null },
+            onSave = { updated ->
+                scope.launch { viewModel.savePresets(presets.map { if (it.id == updated.id) updated else it }) }
+                editingPreset = null
+            },
+        )
+    }
 }
 
 private fun appFontScaleStepLabel(step: Int): String = when (step) {
@@ -173,28 +281,172 @@ private fun SettingsCalendarRow(
     }
 }
 
-/** 배치된 위젯 목록 → 각 위젯 설정 진입. (기존 MainActivity 디버그 화면에서 이관) */
+@Composable
+private fun PresetRow(
+    preset: AppPreset,
+    isActive: Boolean,
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
+    canDelete: Boolean,
+    onApply: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onApply)
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(modifier = Modifier.size(14.dp).background(color = Color(preset.colorArgb), shape = CircleShape))
+        Spacer(modifier = Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = preset.name,
+                style = MaterialTheme.typography.bodyLarge,
+                color = if (isActive) MaterialTheme.colorScheme.primary else Color.Unspecified,
+            )
+            val scopeLabel = if (preset.calendarIds == null) "전체 캘린더" else "캘린더 ${preset.calendarIds.size}개"
+            Text(text = scopeLabel, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        IconButton(onClick = onMoveUp, enabled = canMoveUp) {
+            Icon(Icons.Default.KeyboardArrowUp, contentDescription = "위로 이동")
+        }
+        IconButton(onClick = onMoveDown, enabled = canMoveDown) {
+            Icon(Icons.Default.KeyboardArrowDown, contentDescription = "아래로 이동")
+        }
+        IconButton(onClick = onEdit) {
+            Icon(Icons.Default.Edit, contentDescription = "프리셋 수정")
+        }
+        IconButton(onClick = onDelete, enabled = canDelete) {
+            Icon(Icons.Default.Delete, contentDescription = "프리셋 삭제")
+        }
+    }
+}
+
+@Composable
+private fun PresetEditDialog(
+    existing: AppPreset?,
+    calendars: List<CalendarInfo>,
+    onDismiss: () -> Unit,
+    onSave: (AppPreset) -> Unit,
+) {
+    var name by remember { mutableStateOf(existing?.name ?: "") }
+    var colorArgb by remember { mutableIntStateOf(existing?.colorArgb ?: APP_PRESET_COLOR_PALETTE.first()) }
+    // null(전체)과 빈 집합을 구분해야 하므로, 다이얼로그 안에서는 항상 구체적인 집합으로 다룬다.
+    var selectedIds by remember {
+        mutableStateOf(existing?.calendarIds ?: calendars.map { it.id }.toSet())
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (existing == null) "프리셋 추가" else "프리셋 수정") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("이름") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(text = "색상", style = MaterialTheme.typography.labelMedium)
+                Row(modifier = Modifier.padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    APP_PRESET_COLOR_PALETTE.forEach { colorOption ->
+                        Box(
+                            modifier = Modifier
+                                .size(28.dp)
+                                .background(Color(colorOption), CircleShape)
+                                .border(
+                                    width = if (colorOption == colorArgb) 2.dp else 0.dp,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    shape = CircleShape,
+                                )
+                                .clickable { colorArgb = colorOption },
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(text = "포함할 캘린더", style = MaterialTheme.typography.labelMedium)
+                calendars.forEach { calendar ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Checkbox(
+                            checked = selectedIds.contains(calendar.id),
+                            onCheckedChange = { checked ->
+                                selectedIds = if (checked) selectedIds + calendar.id else selectedIds - calendar.id
+                            },
+                        )
+                        Text(text = calendar.displayName, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = name.isNotBlank(),
+                onClick = {
+                    val allSelected = selectedIds.size == calendars.size
+                    onSave(
+                        AppPreset(
+                            id = existing?.id ?: UUID.randomUUID().toString(),
+                            name = name.trim(),
+                            colorArgb = colorArgb,
+                            calendarIds = if (allSelected) null else selectedIds,
+                        ),
+                    )
+                },
+            ) { Text("저장") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("취소") } },
+    )
+}
+
+private data class WidgetKindEntry(val provider: Class<*>, val labelRes: Int)
+
+private val PLACED_WIDGET_KINDS = listOf(
+    WidgetKindEntry(RunCalCalendarWidgetProvider::class.java, R.string.runcal_calendar_widget_label),
+    WidgetKindEntry(RunCalMonthlyStandardWidgetProvider::class.java, R.string.runcal_monthly_standard_widget_label),
+    WidgetKindEntry(RunCalMonthlyCompactWidgetProvider::class.java, R.string.runcal_monthly_compact_widget_label),
+    WidgetKindEntry(RunCalTodayMiniWidgetProvider::class.java, R.string.runcal_today_mini_widget_label),
+    WidgetKindEntry(RunCalTodayHorizontalWidgetProvider::class.java, R.string.runcal_today_horizontal_widget_label),
+    WidgetKindEntry(RunCalTodayVerticalWidgetProvider::class.java, R.string.runcal_today_vertical_widget_label),
+)
+
+/** 배치된 위젯 목록(6종 전체) → 각 위젯 설정 진입. (기존 MainActivity 디버그 화면에서 이관) */
 @Composable
 private fun PlacedWidgetsSection() {
     val context = LocalContext.current
-    var widgetIds by remember { mutableStateOf<List<Int>>(emptyList()) }
+    var placedWidgets by remember { mutableStateOf<List<Pair<Int, Int>>>(emptyList()) }
 
     LaunchedEffect(Unit) {
         val manager = AppWidgetManager.getInstance(context)
-        widgetIds = manager.getAppWidgetIds(ComponentName(context, RunCalCalendarWidgetProvider::class.java)).toList()
+        placedWidgets = PLACED_WIDGET_KINDS.flatMap { kind ->
+            manager.getAppWidgetIds(ComponentName(context, kind.provider)).map { id -> id to kind.labelRes }
+        }.sortedBy { it.first }
     }
 
     Text(text = "배치된 위젯", style = MaterialTheme.typography.titleMedium)
-    if (widgetIds.isEmpty()) {
+    if (placedWidgets.isEmpty()) {
         Text(text = "배치된 위젯이 없습니다", style = MaterialTheme.typography.bodyMedium)
     } else {
-        widgetIds.forEach { appWidgetId ->
+        placedWidgets.forEach { (appWidgetId, labelRes) ->
             Row(
                 modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(text = "위젯 #$appWidgetId", style = MaterialTheme.typography.bodyLarge)
+                Column {
+                    Text(text = stringResource(labelRes), style = MaterialTheme.typography.bodyLarge)
+                    Text(text = "#$appWidgetId", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
                 Button(onClick = {
                     // 위젯이 신규 배치될 때 시스템이 보내는 인텐트와 동일한 action/component로 구성해
                     // 앱에서 재설정하는 경로와 최초 배치 경로가 완전히 동일하게 동작하도록 한다.

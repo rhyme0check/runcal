@@ -9,6 +9,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import java.time.DayOfWeek
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.serialization.json.Json
 
 private val Context.appSettingsDataStore by preferencesDataStore(name = "app_settings")
 
@@ -25,6 +26,8 @@ data class AppSettings(
     val visibleCalendarIds: Set<Long>? = null,
     val weekStartDay: DayOfWeek = DEFAULT_WEEK_START_DAY,
     val fontScaleStep: Int = DEFAULT_APP_FONT_SCALE_STEP,
+    val presets: List<AppPreset> = listOf(DEFAULT_APP_PRESET),
+    val activePresetId: String = DEFAULT_APP_PRESET_ID,
 )
 
 class AppSettingsRepository(private val context: Context) {
@@ -33,6 +36,8 @@ class AppSettingsRepository(private val context: Context) {
         val VISIBLE_CALENDAR_IDS = stringSetPreferencesKey("visible_calendar_ids")
         val WEEK_START_DAY = stringPreferencesKey("week_start_day")
         val FONT_SCALE_STEP = intPreferencesKey("app_font_scale_step")
+        val PRESETS = stringPreferencesKey("app_presets")
+        val ACTIVE_PRESET_ID = stringPreferencesKey("active_app_preset_id")
     }
 
     val settings: Flow<AppSettings> = context.appSettingsDataStore.data.map { prefs ->
@@ -42,6 +47,10 @@ class AppSettingsRepository(private val context: Context) {
                 ?.let { runCatching { DayOfWeek.valueOf(it) }.getOrNull() }
                 ?: DEFAULT_WEEK_START_DAY,
             fontScaleStep = prefs[Keys.FONT_SCALE_STEP] ?: DEFAULT_APP_FONT_SCALE_STEP,
+            presets = prefs[Keys.PRESETS]?.let { json ->
+                runCatching { Json.decodeFromString(appPresetListSerializer, json) }.getOrNull()
+            }?.takeIf { it.isNotEmpty() } ?: listOf(DEFAULT_APP_PRESET),
+            activePresetId = prefs[Keys.ACTIVE_PRESET_ID] ?: DEFAULT_APP_PRESET_ID,
         )
     }
 
@@ -61,5 +70,15 @@ class AppSettingsRepository(private val context: Context) {
 
     suspend fun setFontScaleStep(step: Int) {
         context.appSettingsDataStore.edit { prefs -> prefs[Keys.FONT_SCALE_STEP] = step }
+    }
+
+    suspend fun setPresets(presets: List<AppPreset>) {
+        context.appSettingsDataStore.edit { prefs ->
+            prefs[Keys.PRESETS] = Json.encodeToString(appPresetListSerializer, presets)
+        }
+    }
+
+    suspend fun setActivePresetId(id: String) {
+        context.appSettingsDataStore.edit { prefs -> prefs[Keys.ACTIVE_PRESET_ID] = id }
     }
 }
