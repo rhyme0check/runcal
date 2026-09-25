@@ -58,6 +58,8 @@ import com.jongsun.runcal.data.CALENDAR_PERMISSIONS
 import com.jongsun.runcal.data.CalendarInfo
 import com.jongsun.runcal.data.CalendarRepository
 import com.jongsun.runcal.data.hasCalendarPermissions
+import com.jongsun.runcal.data.room.NotionDatabaseEntity
+import com.jongsun.runcal.data.room.RunCalDatabase
 import com.jongsun.runcal.ui.theme.RunCalTheme
 import java.util.UUID
 import kotlin.math.roundToInt
@@ -133,6 +135,7 @@ private fun WidgetConfigScreen(
     }
 
     var calendars by remember { mutableStateOf<List<CalendarInfo>>(emptyList()) }
+    var notionDatabases by remember { mutableStateOf<List<NotionDatabaseEntity>>(emptyList()) }
     var presets by remember { mutableStateOf<List<WidgetPreset>>(emptyList()) }
     var currentPresetIndex by remember { mutableIntStateOf(0) }
     var expandedPresetId by remember { mutableStateOf<String?>(null) }
@@ -142,6 +145,11 @@ private fun WidgetConfigScreen(
     var loaded by remember { mutableStateOf(false) }
     // 위젯 종류에 따라 불필요한 항목(예: 오늘 위젯의 주차 번호)을 숨긴다.
     val isMonthlyWidget = remember(appWidgetId) { WidgetKind.forAppWidgetId(context, appWidgetId).isMonthly }
+
+    // Notion 연동은 캘린더 권한과 무관하므로 별도로, 바로 불러온다.
+    LaunchedEffect(Unit) {
+        notionDatabases = RunCalDatabase.getInstance(context).notionDatabaseDao().getAll()
+    }
 
     LaunchedEffect(permissionGranted) {
         if (!permissionGranted) return@LaunchedEffect
@@ -183,6 +191,7 @@ private fun WidgetConfigScreen(
                 PresetEditorCard(
                     preset = preset,
                     calendars = calendars,
+                    notionDatabases = notionDatabases,
                     expanded = expandedPresetId == preset.id,
                     canDelete = presets.size > 1,
                     onToggleExpand = {
@@ -198,6 +207,12 @@ private fun WidgetConfigScreen(
                         val current = preset.calendarIds ?: calendars.map { it.id }.toSet()
                         val updated = if (checked) current + calendarId else current - calendarId
                         presets = presets.toMutableList().apply { this[index] = preset.copy(calendarIds = updated) }
+                    },
+                    onNotionToggle = { databaseId, checked ->
+                        // calendarIds와 달리 null이 "전체"가 아니라 "없음"이므로 기본값을 emptySet()으로 둔다.
+                        val current = preset.notionDatabaseIds ?: emptySet()
+                        val updated = if (checked) current + databaseId else current - databaseId
+                        presets = presets.toMutableList().apply { this[index] = preset.copy(notionDatabaseIds = updated) }
                     },
                     onDelete = {
                         presets = presets.filterIndexed { i, _ -> i != index }
@@ -264,15 +279,18 @@ private fun WidgetConfigScreen(
 private fun PresetEditorCard(
     preset: WidgetPreset,
     calendars: List<CalendarInfo>,
+    notionDatabases: List<NotionDatabaseEntity>,
     expanded: Boolean,
     canDelete: Boolean,
     onToggleExpand: () -> Unit,
     onNameChange: (String) -> Unit,
     onColorChange: (Int) -> Unit,
     onCalendarToggle: (Long, Boolean) -> Unit,
+    onNotionToggle: (String, Boolean) -> Unit,
     onDelete: () -> Unit,
 ) {
     val selectedCalendarIds = preset.calendarIds ?: calendars.map { it.id }.toSet()
+    val selectedNotionIds = preset.notionDatabaseIds ?: emptySet()
 
     Column(
         modifier = Modifier
@@ -341,6 +359,29 @@ private fun PresetEditorCard(
                     Column {
                         Text(text = calendar.displayName, style = MaterialTheme.typography.bodyMedium)
                         Text(text = calendar.accountName, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+
+            // 등록된 Notion DB가 있을 때만 보여준다.
+            if (notionDatabases.isNotEmpty()) {
+                Text(
+                    text = "Notion 데이터베이스",
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
+                )
+                notionDatabases.forEach { database ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Checkbox(
+                            checked = selectedNotionIds.contains(database.id),
+                            onCheckedChange = { checked -> onNotionToggle(database.id, checked) },
+                        )
+                        Box(modifier = Modifier.size(10.dp).background(Color(database.colorArgb), CircleShape))
+                        Text(text = database.displayName, style = MaterialTheme.typography.bodyMedium)
                     }
                 }
             }

@@ -28,6 +28,9 @@ const val DEFAULT_NOTION_SYNC_INTERVAL_HOURS = 3
  */
 data class AppSettings(
     val visibleCalendarIds: Set<Long>? = null,
+    // null=전체, 빈 집합(기본값)=없음 — calendarIds와 의도적으로 비대칭. 프리셋을 통해서만
+    // 채워지므로 기본은 opt-in.
+    val visibleNotionDatabaseIds: Set<String>? = emptySet(),
     val weekStartDay: DayOfWeek = DEFAULT_WEEK_START_DAY,
     val fontScaleStep: Int = DEFAULT_APP_FONT_SCALE_STEP,
     val presets: List<AppPreset> = listOf(DEFAULT_APP_PRESET),
@@ -44,11 +47,13 @@ class AppSettingsRepository(private val context: Context) {
         val PRESETS = stringPreferencesKey("app_presets")
         val ACTIVE_PRESET_ID = stringPreferencesKey("active_app_preset_id")
         val NOTION_SYNC_INTERVAL_HOURS = intPreferencesKey("notion_sync_interval_hours")
+        val VISIBLE_NOTION_DATABASE_IDS = stringSetPreferencesKey("visible_notion_database_ids")
     }
 
     val settings: Flow<AppSettings> = context.appSettingsDataStore.data.map { prefs ->
         AppSettings(
             visibleCalendarIds = prefs[Keys.VISIBLE_CALENDAR_IDS]?.mapNotNull { it.toLongOrNull() }?.toSet(),
+            visibleNotionDatabaseIds = prefs[Keys.VISIBLE_NOTION_DATABASE_IDS] ?: emptySet(),
             weekStartDay = prefs[Keys.WEEK_START_DAY]
                 ?.let { runCatching { DayOfWeek.valueOf(it) }.getOrNull() }
                 ?: DEFAULT_WEEK_START_DAY,
@@ -69,6 +74,10 @@ class AppSettingsRepository(private val context: Context) {
                 prefs[Keys.VISIBLE_CALENDAR_IDS] = ids.map { it.toString() }.toSet()
             }
         }
+    }
+
+    suspend fun setVisibleNotionDatabaseIds(ids: Set<String>) {
+        context.appSettingsDataStore.edit { prefs -> prefs[Keys.VISIBLE_NOTION_DATABASE_IDS] = ids }
     }
 
     suspend fun setWeekStartDay(day: DayOfWeek) {

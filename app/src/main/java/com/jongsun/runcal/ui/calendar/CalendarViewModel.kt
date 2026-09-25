@@ -10,10 +10,21 @@ import com.jongsun.runcal.data.CalendarRepository
 import com.jongsun.runcal.data.DEFAULT_APP_FONT_SCALE_STEP
 import com.jongsun.runcal.data.DEFAULT_APP_PRESET
 import com.jongsun.runcal.data.DEFAULT_APP_PRESET_ID
+import com.jongsun.runcal.data.DEFAULT_NOTION_SYNC_INTERVAL_HOURS
 import com.jongsun.runcal.data.DEFAULT_WEEK_START_DAY
 import com.jongsun.runcal.data.EventItem
+import com.jongsun.runcal.data.notion.NotionApiClient
+import com.jongsun.runcal.data.notion.NotionDatabaseSchemaResponse
 import com.jongsun.runcal.data.occursOn
+import com.jongsun.runcal.data.room.NotionDatabaseEntity
+import com.jongsun.runcal.data.room.RunCalDatabase
+import com.jongsun.runcal.data.notion.NotionEventSource
+import com.jongsun.runcal.data.source.EventRepository
+import com.jongsun.runcal.data.source.SourceSelection
 import com.jongsun.runcal.widget.RunCalWidgetRenderer
+import com.jongsun.runcal.work.NotionSyncJob
+import com.jongsun.runcal.work.NotionSyncResult
+import com.jongsun.runcal.work.WorkScheduler
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.YearMonth
@@ -35,6 +46,11 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
 
     private val repository = CalendarRepository(application)
     private val appSettingsRepository = AppSettingsRepository(application)
+    private val db = RunCalDatabase.getInstance(application)
+    private val notionApiClient = NotionApiClient()
+    private val notionEventSource = NotionEventSource(db.notionEventDao(), db.notionDatabaseDao())
+    private val eventRepository = EventRepository(repository, notionEventSource)
+    private val notionSyncJob = NotionSyncJob(db.notionDatabaseDao(), db.notionEventDao(), notionApiClient)
     private val zone: ZoneId = ZoneId.systemDefault()
 
     val today: LocalDate = LocalDate.now()
@@ -64,6 +80,17 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
     private val _calendars = MutableStateFlow<List<CalendarInfo>>(emptyList())
     val calendars: StateFlow<List<CalendarInfo>> = _calendars.asStateFlow()
 
+    // null=이 종류 전체, 빈 집합=없음 — visibleCalendarIds와 같은 규약이되 기본값은 emptySet()
+    // (opt-in). 프리셋을 통해서만 채워지고, 캘린더처럼 상시 노출되는 체크박스 목록은 없다.
+    private val _visibleNotionDatabaseIds = MutableStateFlow<Set<String>?>(emptySet())
+    val visibleNotionDatabaseIds: StateFlow<Set<String>?> = _visibleNotionDatabaseIds.asStateFlow()
+
+    private val _notionSyncIntervalHours = MutableStateFlow(DEFAULT_NOTION_SYNC_INTERVAL_HOURS)
+    val notionSyncIntervalHours: StateFlow<Int> = _notionSyncIntervalHours.asStateFlow()
+
+    private val _notionDatabases = MutableStateFlow<List<NotionDatabaseEntity>>(emptyList())
+    val notionDatabases: StateFlow<List<NotionDatabaseEntity>> = _notionDatabases.asStateFlow()
+
     private val _monthCache = MutableStateFlow<Map<YearMonth, List<EventItem>>>(emptyMap())
     val monthCache: StateFlow<Map<YearMonth, List<EventItem>>> = _monthCache.asStateFlow()
 
@@ -74,13 +101,16 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             appSettingsRepository.settings.collect { settings ->
                 val calendarFilterChanged = _visibleCalendarIds.value != settings.visibleCalendarIds
+                val notionFilterChanged = _visibleNotionDatabaseIds.value != settings.visibleNotionDatabaseIds
                 val weekStartChanged = _weekStartDay.value != settings.weekStartDay
                 _weekStartDay.value = settings.weekStartDay
                 _visibleCalendarIds.value = settings.visibleCalendarIds
+                _visibleNotionDatabaseIds.value = settings.visibleNotionDatabaseIds
                 _appFontScaleStep.value = settings.fontScaleStep
                 _presets.value = settings.presets
                 _activePresetId.value = settings.activePresetId
-                if (settingsInitialized && (calendarFilterChanged || weekStartChanged)) {
+                _notionSyncIntervalHours.value = settings.notionSyncIntervalHours
+                if (settingsInitialized && (calendarFilterChanged || notionFilterChanged || weekStartChanged)) {
                     invalidateCache()
                     ensureMonthLoaded(_visibleYearMonth.value, force = true)
                 }
@@ -88,10 +118,15 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
             }
         }
         viewModelScope.launch { refreshCalendars() }
+        viewModelScope.launch { refreshNotionDatabases() }
     }
 
     suspend fun refreshCalendars() {
         _calendars.value = repository.getCalendars()
+    }
+
+    suspend fun refreshNotionDatabases() {
+        _notionDatabases.value = db.notionDatabaseDao().getAll()
     }
 
     fun setVisibleYearMonth(yearMonth: YearMonth) {
@@ -125,12 +160,8 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
             val (start, endExclusive) = monthGridDateRange(weeks)
             val startMillis = start.atStartOfDay(zone).toInstant().toEpochMilli()
             val endMillis = endExclusive.atStartOfDay(zone).toInstant().toEpochMilli()
-            val calendarIds = _visibleCalendarIds.value
-            val events = if (calendarIds != null && calendarIds.isEmpty()) {
-                emptyList()
-            } else {
-                repository.getEvents(startMillis, endMillis, calendarIds?.toList())
-            }
+            val selection = SourceSelection(_visibleCalendarIds.value, _visibleNotionDatabaseIds.value)
+            val events = eventRepository.getEvents(startMillis, endMillis, selection)
             _monthCache.update { it + (yearMonth to events) }
             loadingMonths -= yearMonth
         }
@@ -147,12 +178,8 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
      * 표시 캘린더 필터(visibleCalendarIds)는 동일하게 적용된다.
      */
     suspend fun eventsInRange(startMillis: Long, endMillis: Long): List<EventItem> {
-        val calendarIds = _visibleCalendarIds.value
-        return if (calendarIds != null && calendarIds.isEmpty()) {
-            emptyList()
-        } else {
-            repository.getEvents(startMillis, endMillis, calendarIds?.toList())
-        }
+        val selection = SourceSelection(_visibleCalendarIds.value, _visibleNotionDatabaseIds.value)
+        return eventRepository.getEvents(startMillis, endMillis, selection)
     }
 
     /** [date]가 속한 달의 캐시에서 해당 날짜에 걸친 이벤트만 걸러낸다. */
@@ -182,13 +209,55 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
 
     suspend fun setAppFontScaleStep(step: Int) = appSettingsRepository.setFontScaleStep(step)
 
-    /** 프리셋을 적용한다 — 표시 캘린더를 프리셋 값으로 덮어쓰고 활성 프리셋으로 표시한다. */
+    /**
+     * 프리셋을 적용한다 — 표시 캘린더/Notion DB를 프리셋 값으로 덮어쓰고 활성 프리셋으로 표시한다.
+     * preset.notionDatabaseIds의 null(="Notion 없음", 프리셋 쪽 관례)을 visibleNotionDatabaseIds의
+     * emptySet()으로 변환해서 넘긴다 — 그대로 null을 넘기면 "전체 Notion DB"로 해석돼버린다.
+     */
     suspend fun applyPreset(preset: AppPreset) {
         appSettingsRepository.setVisibleCalendarIds(preset.calendarIds)
+        appSettingsRepository.setVisibleNotionDatabaseIds(preset.notionDatabaseIds ?: emptySet())
         appSettingsRepository.setActivePresetId(preset.id)
     }
 
     suspend fun savePresets(presets: List<AppPreset>) = appSettingsRepository.setPresets(presets)
+
+    suspend fun fetchNotionSchema(notionDatabaseId: String): NotionDatabaseSchemaResponse =
+        notionApiClient.retrieveDatabase(notionDatabaseId)
+
+    /** DB를 등록/수정하고 즉시 1회 동기화한다. 결과(성공 여부·건수)를 UI가 바로 보여줄 수 있게 반환한다. */
+    suspend fun registerNotionDatabase(entity: NotionDatabaseEntity): NotionSyncResult {
+        db.notionDatabaseDao().upsert(entity)
+        val result = notionSyncJob.syncOne(entity)
+        refreshNotionDatabases()
+        invalidateCache()
+        ensureMonthLoaded(_visibleYearMonth.value, force = true)
+        RunCalWidgetRenderer.updateAllWidgets(getApplication())
+        return result
+    }
+
+    /** "지금 동기화" — 등록된 모든 DB를 즉시(동기적으로) 재동기화한다. */
+    suspend fun syncAllNotionDatabases(): List<NotionSyncResult> {
+        val results = notionSyncJob.syncAll()
+        refreshNotionDatabases()
+        invalidateCache()
+        ensureMonthLoaded(_visibleYearMonth.value, force = true)
+        RunCalWidgetRenderer.updateAllWidgets(getApplication())
+        return results
+    }
+
+    suspend fun deleteNotionDatabase(id: String) {
+        db.notionDatabaseDao().deleteById(id)
+        refreshNotionDatabases()
+        invalidateCache()
+        ensureMonthLoaded(_visibleYearMonth.value, force = true)
+        RunCalWidgetRenderer.updateAllWidgets(getApplication())
+    }
+
+    suspend fun setNotionSyncIntervalHours(hours: Int) {
+        appSettingsRepository.setNotionSyncIntervalHours(hours)
+        WorkScheduler.reschedulePeriodic(getApplication(), hours.toLong())
+    }
 
     fun pageForYearMonth(yearMonth: YearMonth): Int =
         MONTH_ANCHOR_PAGE + ChronoUnit.MONTHS.between(anchorYearMonth, yearMonth).toInt()

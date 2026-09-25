@@ -3,12 +3,9 @@ package com.jongsun.runcal.ui.calendar
 import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import android.content.Intent
-import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -62,9 +59,9 @@ import com.jongsun.runcal.data.AppPreset
 import com.jongsun.runcal.data.CalendarInfo
 import com.jongsun.runcal.data.MAX_APP_FONT_SCALE_STEP
 import com.jongsun.runcal.data.MIN_APP_FONT_SCALE_STEP
-import com.jongsun.runcal.data.notion.NotionApiClient
-import com.jongsun.runcal.data.notion.NotionApiException
+import com.jongsun.runcal.data.room.NotionDatabaseEntity
 import com.jongsun.runcal.export.WeeklyExportDialog
+import com.jongsun.runcal.ui.notion.NotionSettingsSection
 import com.jongsun.runcal.widget.RunCalCalendarWidgetProvider
 import com.jongsun.runcal.widget.RunCalMonthlyCompactWidgetProvider
 import com.jongsun.runcal.widget.RunCalMonthlyStandardWidgetProvider
@@ -77,9 +74,6 @@ import java.util.UUID
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
-// TEMP(2단계 검증용): 등록 UI가 생기기 전까지 훈련일지 DB로 스키마/동기화를 테스트하기 위한 상수.
-private const val DEBUG_NOTION_DATABASE_ID = "979e84d5-eb49-4441-8263-2c659610ce6d"
-
 @Composable
 fun SettingsScreen(viewModel: CalendarViewModel, modifier: Modifier = Modifier) {
     val calendars by viewModel.calendars.collectAsStateWithLifecycle()
@@ -88,6 +82,7 @@ fun SettingsScreen(viewModel: CalendarViewModel, modifier: Modifier = Modifier) 
     val fontScaleStep by viewModel.appFontScaleStep.collectAsStateWithLifecycle()
     val presets by viewModel.presets.collectAsStateWithLifecycle()
     val activePresetId by viewModel.activePresetId.collectAsStateWithLifecycle()
+    val notionDatabases by viewModel.notionDatabases.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
 
     val selectedIds = visibleCalendarIds ?: calendars.map { it.id }.toSet()
@@ -178,6 +173,11 @@ fun SettingsScreen(viewModel: CalendarViewModel, modifier: Modifier = Modifier) 
 
         item {
             HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+            NotionSettingsSection(viewModel = viewModel)
+        }
+
+        item {
+            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
             Text(text = "주 시작 요일", style = MaterialTheme.typography.titleMedium)
             Row(modifier = Modifier.padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(
@@ -219,10 +219,7 @@ fun SettingsScreen(viewModel: CalendarViewModel, modifier: Modifier = Modifier) 
         item {
             HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
             Text(text = "테스트 도구", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 8.dp))
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.horizontalScroll(rememberScrollState()),
-            ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = {
                     scope.launch {
                         viewModel.ensureLocalTestCalendar()
@@ -237,70 +234,6 @@ fun SettingsScreen(viewModel: CalendarViewModel, modifier: Modifier = Modifier) 
                         statusMessage = "샘플 일정 ${inserted}건을 추가했습니다"
                     }
                 }) { Text("샘플 일정 10건 추가") }
-
-                // TEMP(2단계 검증용): 등록 UI가 아직 없어 DB ID를 하드코딩해 스키마만 조회한다.
-                // 3단계에서 실제 등록 화면이 생기면 이 버튼은 제거한다.
-                Button(onClick = {
-                    scope.launch {
-                        statusMessage = "Notion 스키마 조회 중..."
-                        try {
-                            val schema = NotionApiClient().retrieveDatabase(DEBUG_NOTION_DATABASE_ID)
-                            val propertyList = schema.properties.values
-                                .joinToString("\n") { "  - ${it.name} : ${it.type}" }
-                            Log.d("RunCal", "Notion schema for '${schema.titleText}':\n$propertyList")
-                            statusMessage = "스키마 조회 성공 (${schema.properties.size}개 속성) — Logcat 확인"
-                        } catch (e: NotionApiException) {
-                            Log.e("RunCal", "Notion schema fetch failed: HTTP ${e.statusCode}")
-                            statusMessage = if (e.statusCode == 401 || e.statusCode == 403) {
-                                "인증 실패(${e.statusCode}) — Notion에서 이 통합(integration)을 해당 DB에 연결했는지 확인하세요"
-                            } else {
-                                "스키마 조회 실패: HTTP ${e.statusCode}"
-                            }
-                        }
-                    }
-                }) { Text("[임시] Notion 스키마 조회") }
-
-                // TEMP(2단계 검증용): 스키마 조회 결과(날짜=날짜, 제목=세션, 부제=일지, 상태=상태)를
-                // 보고 정한 매핑을 하드코딩해 Room에 등록 후 실제 동기화 1회를 실행한다.
-                Button(onClick = {
-                    scope.launch {
-                        statusMessage = "Notion 동기화 중..."
-                        val context = viewModel.getApplication<android.app.Application>()
-                        val db = com.jongsun.runcal.data.room.RunCalDatabase.getInstance(context)
-                        val registration = com.jongsun.runcal.data.room.NotionDatabaseEntity(
-                            id = "debug-training-log",
-                            notionDatabaseId = DEBUG_NOTION_DATABASE_ID,
-                            displayName = "훈련일지",
-                            colorArgb = APP_PRESET_COLOR_PALETTE[0],
-                            iconEmojiOrUrl = null,
-                            dateProperty = "날짜",
-                            titleProperty = "세션",
-                            subtitleProperty = "일지",
-                            statusProperty = "상태",
-                            schemaJson = "",
-                            lastSchemaCheckedAtMillis = 0L,
-                            lastSyncedAtMillis = 0L,
-                            lastSyncStatus = "PENDING",
-                            lastSyncError = null,
-                            createdAtMillis = System.currentTimeMillis(),
-                        )
-                        db.notionDatabaseDao().upsert(registration)
-                        val syncJob = com.jongsun.runcal.work.NotionSyncJob(
-                            db.notionDatabaseDao(),
-                            db.notionEventDao(),
-                            NotionApiClient(),
-                        )
-                        val startedAt = System.currentTimeMillis()
-                        val result = syncJob.syncOne(registration)
-                        val elapsedMs = System.currentTimeMillis() - startedAt
-                        Log.d("RunCal", "NotionSyncJob debug run: status=${result.status} events=${result.eventCount} elapsed=${elapsedMs}ms error=${result.error}")
-                        statusMessage = when (result.status) {
-                            "OK" -> "동기화 성공: ${result.eventCount}건 캐시됨 (${elapsedMs}ms)"
-                            "SCHEMA_INVALID" -> "매핑 오류: ${result.error}"
-                            else -> "동기화 실패: ${result.error}"
-                        }
-                    }
-                }) { Text("[임시] Notion 동기화 실행") }
             }
             statusMessage?.let { message ->
                 Text(
@@ -316,6 +249,7 @@ fun SettingsScreen(viewModel: CalendarViewModel, modifier: Modifier = Modifier) 
         PresetEditDialog(
             existing = null,
             calendars = calendars,
+            notionDatabases = notionDatabases,
             onDismiss = { showAddPresetDialog = false },
             onSave = { newPreset ->
                 scope.launch { viewModel.savePresets(presets + newPreset) }
@@ -327,6 +261,7 @@ fun SettingsScreen(viewModel: CalendarViewModel, modifier: Modifier = Modifier) 
         PresetEditDialog(
             existing = preset,
             calendars = calendars,
+            notionDatabases = notionDatabases,
             onDismiss = { editingPreset = null },
             onSave = { updated ->
                 scope.launch { viewModel.savePresets(presets.map { if (it.id == updated.id) updated else it }) }
@@ -395,8 +330,13 @@ private fun PresetRow(
                 style = MaterialTheme.typography.bodyLarge,
                 color = if (isActive) MaterialTheme.colorScheme.primary else Color.Unspecified,
             )
-            val scopeLabel = if (preset.calendarIds == null) "전체 캘린더" else "캘린더 ${preset.calendarIds.size}개"
-            Text(text = scopeLabel, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            val calendarLabel = if (preset.calendarIds == null) "전체 캘린더" else "캘린더 ${preset.calendarIds.size}개"
+            val notionLabel = preset.notionDatabaseIds?.takeIf { it.isNotEmpty() }?.let { " · Notion ${it.size}개" }.orEmpty()
+            Text(
+                text = calendarLabel + notionLabel,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
         IconButton(onClick = onMoveUp, enabled = canMoveUp) {
             Icon(Icons.Default.KeyboardArrowUp, contentDescription = "위로 이동")
@@ -417,6 +357,7 @@ private fun PresetRow(
 private fun PresetEditDialog(
     existing: AppPreset?,
     calendars: List<CalendarInfo>,
+    notionDatabases: List<NotionDatabaseEntity>,
     onDismiss: () -> Unit,
     onSave: (AppPreset) -> Unit,
 ) {
@@ -425,6 +366,10 @@ private fun PresetEditDialog(
     // null(전체)과 빈 집합을 구분해야 하므로, 다이얼로그 안에서는 항상 구체적인 집합으로 다룬다.
     var selectedIds by remember {
         mutableStateOf(existing?.calendarIds ?: calendars.map { it.id }.toSet())
+    }
+    // Notion은 캘린더와 달리 기본이 "없음"이다 — 새 프리셋은 빈 집합에서 시작한다(opt-in).
+    var selectedNotionIds by remember {
+        mutableStateOf(existing?.notionDatabaseIds ?: emptySet())
     }
 
     AlertDialog(
@@ -473,19 +418,44 @@ private fun PresetEditDialog(
                         Text(text = calendar.displayName, style = MaterialTheme.typography.bodyMedium)
                     }
                 }
+                // 등록된 Notion DB가 있을 때만 보여준다.
+                if (notionDatabases.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(text = "Notion 데이터베이스", style = MaterialTheme.typography.labelMedium)
+                    notionDatabases.forEach { database ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Checkbox(
+                                checked = selectedNotionIds.contains(database.id),
+                                onCheckedChange = { checked ->
+                                    selectedNotionIds = if (checked) selectedNotionIds + database.id else selectedNotionIds - database.id
+                                },
+                            )
+                            Box(modifier = Modifier.size(10.dp).background(Color(database.colorArgb), CircleShape))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(text = database.displayName, style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                }
             }
         },
         confirmButton = {
             TextButton(
                 enabled = name.isNotBlank(),
                 onClick = {
-                    val allSelected = selectedIds.size == calendars.size
+                    val allCalendarsSelected = selectedIds.size == calendars.size
                     onSave(
                         AppPreset(
                             id = existing?.id ?: UUID.randomUUID().toString(),
                             name = name.trim(),
                             colorArgb = colorArgb,
-                            calendarIds = if (allSelected) null else selectedIds,
+                            calendarIds = if (allCalendarsSelected) null else selectedIds,
+                            // 빈 선택은 null로 저장(둘 다 "Notion 없음"으로 취급되므로 동일) —
+                            // 절대 "전부 선택"을 null로 저장하지 않는다(null=전체가 아니라 없음이므로).
+                            notionDatabaseIds = selectedNotionIds.takeIf { it.isNotEmpty() },
                         ),
                     )
                 },

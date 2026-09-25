@@ -37,11 +37,16 @@ class NotionSyncJob(
 
     suspend fun syncOne(registration: NotionDatabaseEntity): NotionSyncResult {
         val nowMillis = System.currentTimeMillis()
+        var schemaMs = 0L
+        var queryMs = 0L
+        var pageCount = 0
+        var roomMs = 0L
 
         // 1. 스키마 재검증 — 매핑된 속성이 사라지거나 이름이 바뀌었으면 페이지 조회 없이
         //    기존 캐시를 그대로 두고 SCHEMA_INVALID만 남긴다(비우는 것보다 낡은 게 낫다).
+        val schemaStart = System.currentTimeMillis()
         val schema = try {
-            apiClient.retrieveDatabase(registration.notionDatabaseId)
+            apiClient.retrieveDatabase(registration.notionDatabaseId).also { schemaMs = System.currentTimeMillis() - schemaStart }
         } catch (e: NotionApiException) {
             Log.e(TAG, "NotionSyncJob: retrieveDatabase failed for ${registration.id}, HTTP ${e.statusCode}")
             val status = if (e.statusCode == 401 || e.statusCode == 403) "ERROR" else "ERROR"
@@ -83,7 +88,10 @@ class NotionSyncJob(
         var cursor: String? = null
         try {
             do {
+                val queryStart = System.currentTimeMillis()
                 val page = apiClient.queryDatabase(registration.notionDatabaseId, filter = filter, startCursor = cursor)
+                queryMs += System.currentTimeMillis() - queryStart
+                pageCount++
                 for (notionPage in page.results) {
                     val dateRange = NotionPropertyMapper.extractDateRange(notionPage.properties, registration.dateProperty) ?: continue
                     val (startMillis, endMillis, allDay) = NotionPropertyMapper.toEpochMillisRange(dateRange.first, dateRange.second, zone)
@@ -109,8 +117,15 @@ class NotionSyncJob(
             return NotionSyncResult(registration.id, 0, "ERROR", "HTTP ${e.statusCode}")
         }
 
+        val roomStart = System.currentTimeMillis()
         notionEventDao.replaceForDatabase(registration.id, events)
         notionDatabaseDao.updateSyncResult(registration.id, nowMillis, "OK", null)
+        roomMs = System.currentTimeMillis() - roomStart
+        Log.d(
+            TAG,
+            "NotionSyncJob timing: schema=${schemaMs}ms query=${queryMs}ms(${pageCount}p) room=${roomMs}ms " +
+                "total=${System.currentTimeMillis() - nowMillis}ms events=${events.size}",
+        )
         return NotionSyncResult(registration.id, events.size, "OK")
     }
 }

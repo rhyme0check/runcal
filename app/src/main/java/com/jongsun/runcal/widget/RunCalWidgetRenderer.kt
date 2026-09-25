@@ -16,7 +16,11 @@ import com.jongsun.runcal.data.CalendarRepository
 import com.jongsun.runcal.data.EventItem
 import com.jongsun.runcal.data.dateRange
 import com.jongsun.runcal.data.hasCalendarReadPermission
+import com.jongsun.runcal.data.notion.NotionEventSource
 import com.jongsun.runcal.data.occursOn
+import com.jongsun.runcal.data.room.RunCalDatabase
+import com.jongsun.runcal.data.source.EventRepository
+import com.jongsun.runcal.data.source.SourceSelection
 import com.jongsun.runcal.ui.calendar.EventBar
 import com.jongsun.runcal.ui.calendar.MonthGridDay
 import com.jongsun.runcal.ui.calendar.buildMonthGridWeeks
@@ -584,7 +588,13 @@ object RunCalWidgetRenderer {
     private fun maxListRowsFor(fontScaleStep: Int, base: Int): Int =
         (base - (fontScaleStep - DEFAULT_FONT_SCALE_STEP)).coerceAtLeast(1)
 
-    /** 프리셋의 캘린더 필터가 "전체 해제"면 조회 자체를 건너뛰고, 아니면 지정한 날짜 범위로 조회한다. */
+    /**
+     * 캘린더 + Notion을 [EventRepository]로 합쳐 조회한다. Notion 쪽은 Room 캐시만 읽으므로
+     * (네트워크 호출 없음) 이 경로에 끼어들어도 위젯 200ms 반응성 예산에 영향을 주지 않는다.
+     * preset.notionDatabaseIds의 null(="Notion 없음", 프리셋 쪽 관례)을 SourceSelection의
+     * emptySet()으로 변환해서 넘긴다 — 그대로 넘기면 SourceSelection에서는 null이 "전체
+     * Notion DB"로 해석돼 기존에 저장된(Notion 없음이 기본인) 프리셋들이 전부 영향을 받는다.
+     */
     private suspend fun fetchEventsForDateRange(
         context: Context,
         preset: WidgetPreset,
@@ -592,11 +602,15 @@ object RunCalWidgetRenderer {
         endExclusive: LocalDate,
         zone: ZoneId,
     ): List<EventItem> {
-        if (preset.calendarIds != null && preset.calendarIds.isEmpty()) return emptyList()
-        val repository = CalendarRepository(context)
+        val db = RunCalDatabase.getInstance(context)
+        val eventRepository = EventRepository(
+            CalendarRepository(context),
+            NotionEventSource(db.notionEventDao(), db.notionDatabaseDao()),
+        )
         val startMillis = start.atStartOfDay(zone).toInstant().toEpochMilli()
         val endMillis = endExclusive.atStartOfDay(zone).toInstant().toEpochMilli()
-        return repository.getEvents(startMillis, endMillis, calendarIds = preset.calendarIds?.toList())
+        val selection = SourceSelection(preset.calendarIds, preset.notionDatabaseIds ?: emptySet())
+        return eventRepository.getEvents(startMillis, endMillis, selection)
     }
 }
 

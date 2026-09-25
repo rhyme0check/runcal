@@ -46,3 +46,14 @@ data class NotionPage(
     @SerialName("last_edited_time") val lastEditedTime: String = "",
     val properties: Map<String, JsonObject> = emptyMap(),
 )
+
+/**
+ * 사용자가 붙여넣은 Notion DB URL 또는 순수 ID에서 32자리 hex id를 뽑아 표준 UUID
+ * 형식(8-4-4-4-12)으로 정규화한다. URL의 `?v=...`(뷰 id)는 붙어 있어도 무시된다 — hex 32자를
+ * 못 찾으면 null.
+ */
+fun parseNotionDatabaseId(input: String): String? {
+    val withoutQuery = input.substringBefore("?").replace("-", "")
+    val hex = Regex("[0-9a-fA-F]{32}").find(withoutQuery)?.value ?: return null
+    return "${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20, 32)}"
+}
