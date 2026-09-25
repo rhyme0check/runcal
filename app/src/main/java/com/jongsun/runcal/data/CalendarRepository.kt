@@ -18,6 +18,27 @@ import kotlinx.coroutines.withContext
 
 private const val TAG = "RunCal"
 
+// RFC5545 DURATION 문자열(예: "PT3600S", "P1D") 파서 — 반복 일정은 DTEND 대신 DURATION을 쓴다.
+private val DURATION_REGEX = Regex("^([+-])?P(?:(\\d+)W)?(?:(\\d+)D)?(?:T(?:(\\d+)H)?(?:(\\d+)M)?(?:(\\d+)S)?)?$")
+
+private fun parseDurationMillis(duration: String?): Long {
+    if (duration.isNullOrBlank()) return 0L
+    val m = DURATION_REGEX.matchEntire(duration) ?: return 0L
+    val sign = if (m.groupValues[1] == "-") -1L else 1L
+    val weeks = m.groupValues[2].toLongOrNull() ?: 0L
+    val days = m.groupValues[3].toLongOrNull() ?: 0L
+    val hours = m.groupValues[4].toLongOrNull() ?: 0L
+    val minutes = m.groupValues[5].toLongOrNull() ?: 0L
+    val seconds = m.groupValues[6].toLongOrNull() ?: 0L
+    val totalSeconds = weeks * 7 * 86400 + days * 86400 + hours * 3600 + minutes * 60 + seconds
+    return sign * totalSeconds * 1000
+}
+
+private fun formatDuration(durationMillis: Long, allDay: Boolean): String {
+    val totalSeconds = (durationMillis / 1000).coerceAtLeast(if (allDay) 86400L else 1L)
+    return if (allDay) "P${totalSeconds / 86400}D" else "PT${totalSeconds}S"
+}
+
 /** CalendarContract 기반 캘린더/일정 접근 레이어. 모든 접근 지점은 권한 가드 + SecurityException 방어를 거친다. */
 class CalendarRepository(private val context: Context) : EventSource {
 
@@ -93,6 +114,7 @@ class CalendarRepository(private val context: Context) : EventSource {
                 CalendarContract.Instances.CALENDAR_COLOR,
                 CalendarContract.Instances.EVENT_LOCATION,
                 CalendarContract.Instances.DESCRIPTION,
+                CalendarContract.Instances.RRULE,
             )
             val uri = CalendarContract.Instances.CONTENT_URI.buildUpon().apply {
                 ContentUris.appendId(this, startMillis)
@@ -117,6 +139,7 @@ class CalendarRepository(private val context: Context) : EventSource {
                 val calendarColorIdx = cursor.getColumnIndexOrThrow(CalendarContract.Instances.CALENDAR_COLOR)
                 val locationIdx = cursor.getColumnIndexOrThrow(CalendarContract.Instances.EVENT_LOCATION)
                 val descriptionIdx = cursor.getColumnIndexOrThrow(CalendarContract.Instances.DESCRIPTION)
+                val rruleIdx = cursor.getColumnIndexOrThrow(CalendarContract.Instances.RRULE)
                 while (cursor.moveToNext()) {
                     result += EventItem(
                         id = cursor.getLong(eventIdIdx),
@@ -128,6 +151,7 @@ class CalendarRepository(private val context: Context) : EventSource {
                         color = cursor.getInt(calendarColorIdx),
                         location = cursor.getString(locationIdx).orEmpty(),
                         description = cursor.getString(descriptionIdx).orEmpty(),
+                        rrule = cursor.getString(rruleIdx)?.takeIf { it.isNotBlank() },
                     )
                 }
             }
@@ -148,6 +172,7 @@ class CalendarRepository(private val context: Context) : EventSource {
         description: String = "",
         reminderMinutes: List<Int> = emptyList(),
         timeZoneId: String = TimeZone.getDefault().id,
+        rrule: String? = null,
     ): Long = withContext(Dispatchers.IO) {
         if (!hasCalendarWritePermission(context)) {
             Log.e(TAG, "createEvent: WRITE_CALENDAR permission not granted")
@@ -158,7 +183,13 @@ class CalendarRepository(private val context: Context) : EventSource {
                 put(CalendarContract.Events.CALENDAR_ID, calendarId)
                 put(CalendarContract.Events.TITLE, title)
                 put(CalendarContract.Events.DTSTART, startMillis)
-                put(CalendarContract.Events.DTEND, endMillis)
+                // 반복 일정은 CalendarContract 요구사항상 DTEND 대신 DURATION+RRULE을 써야 한다.
+                if (rrule.isNullOrBlank()) {
+                    put(CalendarContract.Events.DTEND, endMillis)
+                } else {
+                    put(CalendarContract.Events.DURATION, formatDuration(endMillis - startMillis, allDay))
+                    put(CalendarContract.Events.RRULE, rrule)
+                }
                 put(CalendarContract.Events.ALL_DAY, if (allDay) 1 else 0)
                 put(CalendarContract.Events.EVENT_TIMEZONE, timeZoneId)
                 put(CalendarContract.Events.EVENT_LOCATION, location)
@@ -192,27 +223,36 @@ class CalendarRepository(private val context: Context) : EventSource {
                 CalendarContract.Events.TITLE,
                 CalendarContract.Events.DTSTART,
                 CalendarContract.Events.DTEND,
+                CalendarContract.Events.DURATION,
                 CalendarContract.Events.ALL_DAY,
                 CalendarContract.Events.CALENDAR_COLOR,
                 CalendarContract.Events.EVENT_LOCATION,
                 CalendarContract.Events.DESCRIPTION,
+                CalendarContract.Events.RRULE,
             )
             resolver.query(uri, projection, null, null, null)?.use { cursor ->
                 if (!cursor.moveToFirst()) return@withContext null
                 val endIdx = cursor.getColumnIndexOrThrow(CalendarContract.Events.DTEND)
+                val durationIdx = cursor.getColumnIndexOrThrow(CalendarContract.Events.DURATION)
                 val startMillis = cursor.getLong(cursor.getColumnIndexOrThrow(CalendarContract.Events.DTSTART))
+                // 반복 일정은 DTEND 대신 DURATION을 쓴다 — 이 함수는 반복 규칙 복원을 위해 마스터
+                // 행(회차가 아닌 원본 Events 행)을 직접 읽으므로 두 경우를 모두 다뤄야 한다.
+                val endMillis = if (!cursor.isNull(endIdx)) {
+                    cursor.getLong(endIdx)
+                } else {
+                    startMillis + parseDurationMillis(cursor.getString(durationIdx))
+                }
                 return@withContext EventItem(
                     id = cursor.getLong(cursor.getColumnIndexOrThrow(CalendarContract.Events._ID)),
                     calendarId = cursor.getLong(cursor.getColumnIndexOrThrow(CalendarContract.Events.CALENDAR_ID)),
                     title = cursor.getString(cursor.getColumnIndexOrThrow(CalendarContract.Events.TITLE)).orEmpty(),
                     begin = startMillis,
-                    // 반복 일정은 DTEND 대신 DURATION을 쓰기도 하지만, 이 함수는 RunCal이 직접 만든
-                    // (반복 없는) 로컬 일정 조회 용도라 DTEND가 항상 채워져 있다고 가정한다.
-                    end = if (cursor.isNull(endIdx)) startMillis else cursor.getLong(endIdx),
+                    end = endMillis,
                     allDay = cursor.getInt(cursor.getColumnIndexOrThrow(CalendarContract.Events.ALL_DAY)) != 0,
                     color = cursor.getInt(cursor.getColumnIndexOrThrow(CalendarContract.Events.CALENDAR_COLOR)),
                     location = cursor.getString(cursor.getColumnIndexOrThrow(CalendarContract.Events.EVENT_LOCATION)).orEmpty(),
                     description = cursor.getString(cursor.getColumnIndexOrThrow(CalendarContract.Events.DESCRIPTION)).orEmpty(),
+                    rrule = cursor.getString(cursor.getColumnIndexOrThrow(CalendarContract.Events.RRULE))?.takeIf { it.isNotBlank() },
                 )
             }
             null
@@ -232,6 +272,9 @@ class CalendarRepository(private val context: Context) : EventSource {
         description: String? = null,
         // null = 알림을 건드리지 않음. 빈 리스트를 포함해 non-null이면 전체를 이 값으로 교체한다.
         reminderMinutes: List<Int>? = null,
+        // 반복 규칙의 전체 원하는 상태(null/빈 문자열 = 반복 아님). startMillis/endMillis와 함께
+        // 넘어올 때만 반영한다 — 편집 화면은 항상 이 셋을 함께 넘기므로 부분 갱신 신경 쓸 필요가 없다.
+        rrule: String? = null,
     ): Int = withContext(Dispatchers.IO) {
         if (!hasCalendarWritePermission(context)) {
             Log.e(TAG, "updateEvent: WRITE_CALENDAR permission not granted")
@@ -240,8 +283,18 @@ class CalendarRepository(private val context: Context) : EventSource {
         try {
             val values = ContentValues().apply {
                 title?.let { put(CalendarContract.Events.TITLE, it) }
-                startMillis?.let { put(CalendarContract.Events.DTSTART, it) }
-                endMillis?.let { put(CalendarContract.Events.DTEND, it) }
+                if (startMillis != null && endMillis != null) {
+                    put(CalendarContract.Events.DTSTART, startMillis)
+                    if (rrule.isNullOrBlank()) {
+                        put(CalendarContract.Events.DTEND, endMillis)
+                        putNull(CalendarContract.Events.DURATION)
+                        putNull(CalendarContract.Events.RRULE)
+                    } else {
+                        putNull(CalendarContract.Events.DTEND)
+                        put(CalendarContract.Events.DURATION, formatDuration(endMillis - startMillis, allDay ?: false))
+                        put(CalendarContract.Events.RRULE, rrule)
+                    }
+                }
                 allDay?.let { put(CalendarContract.Events.ALL_DAY, if (it) 1 else 0) }
                 location?.let { put(CalendarContract.Events.EVENT_LOCATION, it) }
                 description?.let { put(CalendarContract.Events.DESCRIPTION, it) }

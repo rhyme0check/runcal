@@ -12,10 +12,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.background
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -51,13 +53,22 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jongsun.runcal.data.EventItem
+import com.jongsun.runcal.data.MonthlyRecurrenceType
+import com.jongsun.runcal.data.RecurrenceEndType
+import com.jongsun.runcal.data.RecurrenceFrequency
+import com.jongsun.runcal.data.RecurrenceRule
 import com.jongsun.runcal.data.dateRange
+import com.jongsun.runcal.data.parseRRule
 import com.jongsun.runcal.data.source.EventSourceKind
+import com.jongsun.runcal.data.toRRuleString
+import com.jongsun.runcal.data.weekdayOrdinalInMonth
+import java.time.DayOfWeek
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
@@ -73,6 +84,67 @@ private fun reminderLabel(minutes: Int): String = when {
     minutes < 60 -> "${minutes}분 전"
     minutes < 1440 -> "${minutes / 60}시간 전"
     else -> "${minutes / 1440}일 전"
+}
+
+private fun frequencyLabel(frequency: RecurrenceFrequency): String = when (frequency) {
+    RecurrenceFrequency.NONE -> "반복 안 함"
+    RecurrenceFrequency.DAILY -> "매일"
+    RecurrenceFrequency.WEEKLY -> "매주"
+    RecurrenceFrequency.MONTHLY -> "매월"
+    RecurrenceFrequency.YEARLY -> "매년"
+}
+
+private fun intervalUnitLabel(frequency: RecurrenceFrequency): String = when (frequency) {
+    RecurrenceFrequency.DAILY -> "일"
+    RecurrenceFrequency.WEEKLY -> "주"
+    RecurrenceFrequency.MONTHLY -> "개월"
+    RecurrenceFrequency.YEARLY -> "년"
+    RecurrenceFrequency.NONE -> ""
+}
+
+private fun weekdayShortLabel(day: DayOfWeek): String = when (day) {
+    DayOfWeek.MONDAY -> "월"
+    DayOfWeek.TUESDAY -> "화"
+    DayOfWeek.WEDNESDAY -> "수"
+    DayOfWeek.THURSDAY -> "목"
+    DayOfWeek.FRIDAY -> "금"
+    DayOfWeek.SATURDAY -> "토"
+    DayOfWeek.SUNDAY -> "일"
+}
+
+private fun ordinalWord(ordinal: Int): String = when (ordinal) {
+    -1 -> "마지막"
+    1 -> "첫째"
+    2 -> "둘째"
+    3 -> "셋째"
+    4 -> "넷째"
+    else -> "${ordinal}번째"
+}
+
+/** 저장 버튼 위 요약 한 줄. 규칙이 실제로 어떻게 해석됐는지 저장 전에 눈으로 확인할 수 있게 한다. */
+private fun recurrenceSummary(rule: RecurrenceRule, startDate: LocalDate): String {
+    if (rule.frequency == RecurrenceFrequency.NONE) return ""
+    val intervalPrefix = if (rule.interval > 1) "${rule.interval}${intervalUnitLabel(rule.frequency)}마다" else frequencyLabel(rule.frequency)
+    val detail = when (rule.frequency) {
+        RecurrenceFrequency.WEEKLY -> {
+            val days = rule.byWeekdays.ifEmpty { setOf(startDate.dayOfWeek) }
+                .sortedBy { it.value }
+                .joinToString(", ") { weekdayShortLabel(it) }
+            " $days"
+        }
+        RecurrenceFrequency.MONTHLY -> if (rule.monthlyType == MonthlyRecurrenceType.BY_DAY_OF_MONTH) {
+            " ${startDate.dayOfMonth}일"
+        } else {
+            " ${ordinalWord(weekdayOrdinalInMonth(startDate))} ${weekdayShortLabel(startDate.dayOfWeek)}요일"
+        }
+        else -> ""
+    }
+    val end = when (rule.endType) {
+        RecurrenceEndType.NEVER -> ""
+        RecurrenceEndType.COUNT -> ", ${rule.count}회"
+        RecurrenceEndType.UNTIL -> rule.untilDate?.let { ", ${it}까지" } ?: ""
+    }
+    return "$intervalPrefix$detail$end"
 }
 
 /**
@@ -153,17 +225,32 @@ private fun EventEditContent(
     var description by remember { mutableStateOf(existing?.description ?: "") }
     var selectedCalendarId by remember { mutableStateOf(existing?.calendarId ?: writableCalendars.firstOrNull()?.id) }
     var reminderMinutes by remember { mutableStateOf<List<Int>>(emptyList()) }
+    var recurrenceRule by remember { mutableStateOf(parseRRule(existing?.rrule)) }
     var showReminderMenu by remember { mutableStateOf(false) }
+    var showFrequencyMenu by remember { mutableStateOf(false) }
     var showStartDatePicker by remember { mutableStateOf(false) }
     var showEndDatePicker by remember { mutableStateOf(false) }
     var showStartTimePicker by remember { mutableStateOf(false) }
     var showEndTimePicker by remember { mutableStateOf(false) }
+    var showUntilDatePicker by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(existing?.id) {
         if (existing != null) reminderMinutes = viewModel.getReminders(existing.id)
+        // Instances 조회에서 얻은 begin/end는 탭한 회차의 시각이라 반복 일정의 진짜 DTSTART/기간과
+        // 다를 수 있다 — 반복 규칙이 있으면 마스터 행을 다시 읽어 시작 날짜/시간을 정확히 맞춘다.
+        if (existing != null && !existing.rrule.isNullOrBlank()) {
+            val detail = viewModel.getEventDetail(existing.id) ?: return@LaunchedEffect
+            startDate = Instant.ofEpochMilli(detail.begin).atZone(if (detail.allDay) ZoneOffset.UTC else zone).toLocalDate()
+            endDate = Instant.ofEpochMilli(detail.end).atZone(if (detail.allDay) ZoneOffset.UTC else zone)
+                .let { if (detail.allDay) it.toLocalDate().minusDays(1) else it.toLocalDate() }
+            if (!detail.allDay) {
+                startTime = Instant.ofEpochMilli(detail.begin).atZone(zone).toLocalTime()
+                endTime = Instant.ofEpochMilli(detail.end).atZone(zone).toLocalTime()
+            }
+        }
     }
 
     val endBeforeStart = remember(startDate, endDate, startTime, endTime, allDay) {
@@ -236,6 +323,135 @@ private fun EventEditContent(
                 )
             }
             Spacer(modifier = Modifier.height(4.dp))
+
+            Text(text = "반복", style = MaterialTheme.typography.labelMedium)
+            Box(modifier = Modifier.padding(top = 4.dp)) {
+                OutlinedButton(onClick = { showFrequencyMenu = true }) { Text(frequencyLabel(recurrenceRule.frequency)) }
+                DropdownMenu(expanded = showFrequencyMenu, onDismissRequest = { showFrequencyMenu = false }) {
+                    RecurrenceFrequency.entries.forEach { freq ->
+                        DropdownMenuItem(
+                            text = { Text(frequencyLabel(freq)) },
+                            onClick = {
+                                recurrenceRule = recurrenceRule.copy(frequency = freq)
+                                showFrequencyMenu = false
+                            },
+                        )
+                    }
+                }
+            }
+
+            if (recurrenceRule.frequency != RecurrenceFrequency.NONE) {
+                Row(
+                    modifier = Modifier.padding(top = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    OutlinedTextField(
+                        value = recurrenceRule.interval.toString(),
+                        onValueChange = { text ->
+                            val n = text.filter { it.isDigit() }.toIntOrNull()
+                            recurrenceRule = recurrenceRule.copy(interval = (n ?: 1).coerceIn(1, 99))
+                        },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.width(72.dp),
+                    )
+                    Text(text = "${intervalUnitLabel(recurrenceRule.frequency)}마다")
+                }
+
+                if (recurrenceRule.frequency == RecurrenceFrequency.WEEKLY) {
+                    Row(
+                        modifier = Modifier.padding(top = 8.dp).horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        DayOfWeek.entries.forEach { day ->
+                            val selected = day in recurrenceRule.byWeekdays.ifEmpty { setOf(startDate.dayOfWeek) }
+                            FilterChip(
+                                selected = selected,
+                                onClick = {
+                                    val current = recurrenceRule.byWeekdays.ifEmpty { setOf(startDate.dayOfWeek) }
+                                    val updated = if (selected) current - day else current + day
+                                    recurrenceRule = recurrenceRule.copy(byWeekdays = updated.ifEmpty { setOf(day) })
+                                },
+                                label = { Text(weekdayShortLabel(day)) },
+                            )
+                        }
+                    }
+                }
+
+                if (recurrenceRule.frequency == RecurrenceFrequency.MONTHLY) {
+                    Column(modifier = Modifier.padding(top = 8.dp)) {
+                        FilterChip(
+                            selected = recurrenceRule.monthlyType == MonthlyRecurrenceType.BY_DAY_OF_MONTH,
+                            onClick = { recurrenceRule = recurrenceRule.copy(monthlyType = MonthlyRecurrenceType.BY_DAY_OF_MONTH) },
+                            label = { Text("매월 ${startDate.dayOfMonth}일") },
+                            modifier = Modifier.padding(bottom = 6.dp),
+                        )
+                        FilterChip(
+                            selected = recurrenceRule.monthlyType == MonthlyRecurrenceType.BY_WEEKDAY_ORDINAL,
+                            onClick = { recurrenceRule = recurrenceRule.copy(monthlyType = MonthlyRecurrenceType.BY_WEEKDAY_ORDINAL) },
+                            label = {
+                                val ordinal = ordinalWord(weekdayOrdinalInMonth(startDate))
+                                Text("매월 $ordinal ${weekdayShortLabel(startDate.dayOfWeek)}요일")
+                            },
+                        )
+                    }
+                }
+
+                Text(text = "종료 조건", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 16.dp))
+                Row(modifier = Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = recurrenceRule.endType == RecurrenceEndType.NEVER,
+                        onClick = { recurrenceRule = recurrenceRule.copy(endType = RecurrenceEndType.NEVER) },
+                        label = { Text("없음") },
+                    )
+                    FilterChip(
+                        selected = recurrenceRule.endType == RecurrenceEndType.COUNT,
+                        onClick = { recurrenceRule = recurrenceRule.copy(endType = RecurrenceEndType.COUNT) },
+                        label = { Text("횟수") },
+                    )
+                    FilterChip(
+                        selected = recurrenceRule.endType == RecurrenceEndType.UNTIL,
+                        onClick = {
+                            recurrenceRule = recurrenceRule.copy(endType = RecurrenceEndType.UNTIL)
+                            if (recurrenceRule.untilDate == null) showUntilDatePicker = true
+                        },
+                        label = { Text("날짜") },
+                    )
+                }
+                when (recurrenceRule.endType) {
+                    RecurrenceEndType.COUNT -> Row(
+                        modifier = Modifier.padding(top = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        OutlinedTextField(
+                            value = recurrenceRule.count.toString(),
+                            onValueChange = { text ->
+                                val n = text.filter { it.isDigit() }.toIntOrNull()
+                                recurrenceRule = recurrenceRule.copy(count = (n ?: 1).coerceIn(1, 999))
+                            },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.width(72.dp),
+                        )
+                        Text(text = "회 반복")
+                    }
+                    RecurrenceEndType.UNTIL -> OutlinedButton(
+                        modifier = Modifier.padding(top = 8.dp),
+                        onClick = { showUntilDatePicker = true },
+                    ) { Text(recurrenceRule.untilDate?.toString() ?: "날짜 선택") }
+                    RecurrenceEndType.NEVER -> {}
+                }
+
+                Text(
+                    text = recurrenceSummary(recurrenceRule, startDate),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+            }
+            Spacer(modifier = Modifier.height(16.dp))
 
             OutlinedTextField(
                 value = location,
@@ -331,10 +547,11 @@ private fun EventEditContent(
                     scope.launch {
                         saving = true
                         val (startMillis, endMillis) = computeMillis()
+                        val rrule = recurrenceRule.toRRuleString(startDate)
                         val ok = if (existing == null) {
-                            viewModel.createLocalEvent(calendarId, title.trim(), startMillis, endMillis, allDay, location.trim(), description.trim(), reminderMinutes) > 0
+                            viewModel.createLocalEvent(calendarId, title.trim(), startMillis, endMillis, allDay, location.trim(), description.trim(), reminderMinutes, rrule) > 0
                         } else {
-                            viewModel.updateLocalEvent(existing.id, title.trim(), startMillis, endMillis, allDay, location.trim(), description.trim(), reminderMinutes) > 0
+                            viewModel.updateLocalEvent(existing.id, title.trim(), startMillis, endMillis, allDay, location.trim(), description.trim(), reminderMinutes, rrule) > 0
                         }
                         saving = false
                         if (ok) onDismiss() else errorMessage = "저장하지 못했습니다. 캘린더 권한을 확인해주세요."
@@ -378,6 +595,16 @@ private fun EventEditContent(
             initialTime = endTime,
             onDismiss = { showEndTimePicker = false },
             onConfirm = { endTime = it; showEndTimePicker = false },
+        )
+    }
+    if (showUntilDatePicker) {
+        EventDatePickerDialog(
+            initialDate = recurrenceRule.untilDate ?: startDate,
+            onDismiss = { showUntilDatePicker = false },
+            onConfirm = { picked ->
+                recurrenceRule = recurrenceRule.copy(untilDate = picked)
+                showUntilDatePicker = false
+            },
         )
     }
     if (showDeleteConfirm) {

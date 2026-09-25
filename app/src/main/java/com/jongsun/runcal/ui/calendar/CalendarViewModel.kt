@@ -249,8 +249,9 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
         location: String,
         description: String,
         reminderMinutes: List<Int>,
+        rrule: String? = null,
     ): Long {
-        val id = repository.createEvent(calendarId, title, startMillis, endMillis, allDay, location, description, reminderMinutes)
+        val id = repository.createEvent(calendarId, title, startMillis, endMillis, allDay, location, description, reminderMinutes, rrule = rrule)
         if (id > 0) {
             invalidateCache()
             ensureMonthLoaded(_visibleYearMonth.value, force = true)
@@ -268,8 +269,9 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
         location: String,
         description: String,
         reminderMinutes: List<Int>,
+        rrule: String? = null,
     ): Int {
-        val updated = repository.updateEvent(eventId, title, startMillis, endMillis, allDay, location, description, reminderMinutes)
+        val updated = repository.updateEvent(eventId, title, startMillis, endMillis, allDay, location, description, reminderMinutes, rrule = rrule)
         if (updated > 0) {
             invalidateCache()
             ensureMonthLoaded(_visibleYearMonth.value, force = true)
@@ -289,6 +291,13 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
     }
 
     suspend fun getReminders(eventId: Long): List<Int> = repository.getReminders(eventId)
+
+    /**
+     * 반복 규칙 복원 전용. Instances 조회로 얻은 [EventItem]의 begin/end는 탭한 그 회차의
+     * 시각이라 마스터 이벤트의 원래 DTSTART/DURATION과 다를 수 있다 — 반복 일정을 열었을 때
+     * 편집 폼을 정확한 시작 시각/기간으로 채우려면 원본 Events 행을 다시 읽어야 한다.
+     */
+    suspend fun getEventDetail(eventId: Long): EventItem? = repository.getEventById(eventId)
 
     /** 개발/테스트 도구: 로컬 테스트 캘린더를 만들고 위젯/앱 화면을 모두 갱신한다. */
     suspend fun ensureLocalTestCalendar(): Long {

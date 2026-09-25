@@ -32,4 +32,8 @@ data class EventItem(
     val description: String = "",
     // Notion 항목 전용 — 읽기 전용 편집 화면의 "Notion에서 열기" 링크에 쓴다.
     val notionUrl: String? = null,
+    // P2-B(반복 일정) 신규 필드. RFC5545 RRULE 원문(예: "FREQ=WEEKLY;BYDAY=MO,WE"). 반복이
+    // 아니면 null/빈 문자열 — CalendarContract.Instances는 이 값을 회차마다 그대로 복제해서
+    // 돌려주므로, 어떤 회차를 눌러도 같은 반복 규칙을 읽을 수 있다.
+    val rrule: String? = null,
 )
