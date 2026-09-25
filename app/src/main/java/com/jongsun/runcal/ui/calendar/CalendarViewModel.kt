@@ -7,6 +7,10 @@ import com.jongsun.runcal.data.AppPreset
 import com.jongsun.runcal.data.AppSettingsRepository
 import com.jongsun.runcal.data.CalendarInfo
 import com.jongsun.runcal.data.CalendarRepository
+import com.jongsun.runcal.data.backup.BackupPayload
+import com.jongsun.runcal.data.backup.BackupRestoreService
+import com.jongsun.runcal.data.backup.RestoreMode
+import com.jongsun.runcal.data.backup.RestoreSummary
 import com.jongsun.runcal.data.DEFAULT_APP_FONT_SCALE_STEP
 import com.jongsun.runcal.data.DEFAULT_APP_PRESET
 import com.jongsun.runcal.data.DEFAULT_APP_PRESET_ID
@@ -313,6 +317,22 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
     suspend fun setNotionSyncIntervalHours(hours: Int) {
         appSettingsRepository.setNotionSyncIntervalHours(hours)
         WorkScheduler.reschedulePeriodic(getApplication(), hours.toLong())
+    }
+
+    /**
+     * 백업을 실제로 적용한다. 데이터 계층(BackupRestoreService)은 Room/DataStore/CalendarContract만
+     * 건드리고 화면 상태는 모르므로, 여기서 캘린더/Notion/색상 스타일 목록과 캐시를 새로 고치고
+     * 위젯도 즉시 다시 그린다 — registerNotionDatabase 등 다른 변경 함수들과 같은 패턴.
+     */
+    suspend fun restoreFromBackup(payload: BackupPayload, mode: RestoreMode): RestoreSummary {
+        val summary = BackupRestoreService.restore(getApplication(), payload, mode)
+        refreshCalendars()
+        refreshNotionDatabases()
+        refreshEventColorStyles()
+        invalidateCache()
+        ensureMonthLoaded(_visibleYearMonth.value, force = true)
+        RunCalWidgetRenderer.updateAllWidgets(getApplication())
+        return summary
     }
 
     fun pageForYearMonth(yearMonth: YearMonth): Int =

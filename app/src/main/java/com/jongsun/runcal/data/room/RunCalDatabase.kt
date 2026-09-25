@@ -16,15 +16,31 @@ private val MIGRATION_1_2 = object : Migration(1, 2) {
     }
 }
 
+private val MIGRATION_2_3 = object : Migration(2, 3) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS local_event_provenance (" +
+                "calendarEventId INTEGER NOT NULL PRIMARY KEY, calendarId INTEGER NOT NULL, " +
+                "createdAtMillis INTEGER NOT NULL)",
+        )
+    }
+}
+
 @Database(
-    entities = [NotionDatabaseEntity::class, NotionEventEntity::class, EventColorStyleEntity::class],
-    version = 2,
+    entities = [
+        NotionDatabaseEntity::class,
+        NotionEventEntity::class,
+        EventColorStyleEntity::class,
+        LocalEventProvenanceEntity::class,
+    ],
+    version = 3,
     exportSchema = true,
 )
 abstract class RunCalDatabase : RoomDatabase() {
     abstract fun notionDatabaseDao(): NotionDatabaseDao
     abstract fun notionEventDao(): NotionEventDao
     abstract fun eventColorStyleDao(): EventColorStyleDao
+    abstract fun localEventProvenanceDao(): LocalEventProvenanceDao
 
     companion object {
         @Volatile private var instance: RunCalDatabase? = null
@@ -35,7 +51,7 @@ abstract class RunCalDatabase : RoomDatabase() {
                     context.applicationContext,
                     RunCalDatabase::class.java,
                     "runcal_database",
-                ).addMigrations(MIGRATION_1_2).build().also { instance = it }
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build().also { instance = it }
             }
     }
 }

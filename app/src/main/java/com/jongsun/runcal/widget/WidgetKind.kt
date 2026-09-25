@@ -1,7 +1,26 @@
 package com.jongsun.runcal.widget
 
 import android.appwidget.AppWidgetManager
+import android.content.ComponentName
 import android.content.Context
+
+/** 위젯 6종 provider 클래스 전체 — updateAllWidgets/백업이 배치된 인스턴스를 열거할 때 공용으로 쓴다. */
+val ALL_WIDGET_PROVIDER_CLASSES = listOf(
+    RunCalCalendarWidgetProvider::class.java,
+    RunCalMonthlyStandardWidgetProvider::class.java,
+    RunCalMonthlyCompactWidgetProvider::class.java,
+    RunCalTodayMiniWidgetProvider::class.java,
+    RunCalTodayHorizontalWidgetProvider::class.java,
+    RunCalTodayVerticalWidgetProvider::class.java,
+)
+
+/** 현재 기기에 배치된 RunCal 위젯 인스턴스(6종 전체)의 appWidgetId를 전부 모은다. */
+fun enumeratePlacedWidgetIds(context: Context): List<Int> {
+    val manager = AppWidgetManager.getInstance(context)
+    return ALL_WIDGET_PROVIDER_CLASSES.flatMap { providerClass ->
+        manager.getAppWidgetIds(ComponentName(context, providerClass)).toList()
+    }
+}
 
 /** 위젯 6종의 종류. 렌더러/설정 화면이 이 값으로 분기한다. */
 enum class WidgetKind {

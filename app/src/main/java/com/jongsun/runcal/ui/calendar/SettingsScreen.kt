@@ -61,6 +61,7 @@ import com.jongsun.runcal.data.MAX_APP_FONT_SCALE_STEP
 import com.jongsun.runcal.data.MIN_APP_FONT_SCALE_STEP
 import com.jongsun.runcal.data.room.NotionDatabaseEntity
 import com.jongsun.runcal.export.WeeklyExportDialog
+import com.jongsun.runcal.ui.backup.BackupSettingsSection
 import com.jongsun.runcal.ui.notion.NotionSettingsSection
 import com.jongsun.runcal.widget.RunCalCalendarWidgetProvider
 import com.jongsun.runcal.widget.RunCalMonthlyCompactWidgetProvider
@@ -219,6 +220,11 @@ fun SettingsScreen(viewModel: CalendarViewModel, modifier: Modifier = Modifier) 
             HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
             Text(text = "내보내기", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 8.dp))
             Button(onClick = { showExportDialog = true }) { Text("주간표 내보내기") }
+        }
+
+        item {
+            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+            BackupSettingsSection(viewModel = viewModel)
         }
 
         item {

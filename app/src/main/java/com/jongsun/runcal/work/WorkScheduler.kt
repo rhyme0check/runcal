@@ -13,6 +13,8 @@ import java.util.concurrent.TimeUnit
 
 private const val NOTION_SYNC_PERIODIC_NAME = "notion_sync_periodic"
 private const val NOTION_SYNC_MANUAL_NAME = "notion_sync_manual"
+private const val DAILY_BACKUP_PERIODIC_NAME = "daily_backup_periodic"
+private const val DAILY_BACKUP_INTERVAL_HOURS = 24L
 
 /** 기본 동기화 주기. 설정 화면의 1/3/6/12시간 선택(3단계)이 이 값을 대체한다. */
 const val DEFAULT_NOTION_SYNC_INTERVAL_HOURS = 3L
@@ -30,6 +32,17 @@ object WorkScheduler {
             .build()
         WorkManager.getInstance(context)
             .enqueueUniquePeriodicWork(NOTION_SYNC_PERIODIC_NAME, ExistingPeriodicWorkPolicy.KEEP, request)
+        scheduleDailyBackup(context)
+    }
+
+    /** 일일 로컬 백업. 네트워크는 필요 없고, 배터리가 부족할 땐 미룬다. */
+    fun scheduleDailyBackup(context: Context) {
+        val constraints = Constraints.Builder().setRequiresBatteryNotLow(true).build()
+        val request = PeriodicWorkRequestBuilder<DailyBackupWorker>(DAILY_BACKUP_INTERVAL_HOURS, TimeUnit.HOURS)
+            .setConstraints(constraints)
+            .build()
+        WorkManager.getInstance(context)
+            .enqueueUniquePeriodicWork(DAILY_BACKUP_PERIODIC_NAME, ExistingPeriodicWorkPolicy.KEEP, request)
     }
 
     /** 설정에서 동기화 주기를 바꿨을 때(3단계 UI) 호출 — 이번엔 의도적으로 UPDATE. */

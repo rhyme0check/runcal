@@ -5,6 +5,8 @@ import android.content.ContentValues
 import android.content.Context
 import android.provider.CalendarContract
 import android.util.Log
+import com.jongsun.runcal.data.room.LocalEventProvenanceEntity
+import com.jongsun.runcal.data.room.RunCalDatabase
 import com.jongsun.runcal.data.source.EventSource
 import com.jongsun.runcal.data.source.EventSourceKind
 import com.jongsun.runcal.data.source.SourceRef
@@ -28,6 +30,7 @@ class CalendarRepository(private val context: Context) : EventSource {
     }
 
     private val resolver get() = context.contentResolver
+    private val provenanceDao by lazy { RunCalDatabase.getInstance(context).localEventProvenanceDao() }
 
     suspend fun getCalendars(): List<CalendarInfo> = withContext(Dispatchers.IO) {
         if (!hasCalendarReadPermission(context)) {
@@ -150,10 +153,57 @@ class CalendarRepository(private val context: Context) : EventSource {
                 put(CalendarContract.Events.ALL_DAY, if (allDay) 1 else 0)
                 put(CalendarContract.Events.EVENT_TIMEZONE, timeZoneId)
             }
-            resolver.insert(CalendarContract.Events.CONTENT_URI, values)?.lastPathSegment?.toLongOrNull() ?: -1L
+            val id = resolver.insert(CalendarContract.Events.CONTENT_URI, values)?.lastPathSegment?.toLongOrNull() ?: -1L
+            // "RunCal이 만든 일정"이라는 출처 표시 — 백업이 이 표시로 로컬 일정만 골라 다시 읽는다.
+            if (id > 0) {
+                provenanceDao.insert(LocalEventProvenanceEntity(id, calendarId, System.currentTimeMillis()))
+            }
+            id
         } catch (e: SecurityException) {
             Log.e(TAG, "createEvent failed", e)
             -1L
+        }
+    }
+
+    /** 반복 일정 전개 없이 [eventId] 자체(하나의 Events 행)를 직접 읽는다 — 백업이 로컬 일정 필드를 다시 읽을 때 쓴다. */
+    suspend fun getEventById(eventId: Long): EventItem? = withContext(Dispatchers.IO) {
+        if (!hasCalendarReadPermission(context)) {
+            Log.e(TAG, "getEventById: READ_CALENDAR permission not granted")
+            return@withContext null
+        }
+        try {
+            val uri = ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId)
+            val projection = arrayOf(
+                CalendarContract.Events._ID,
+                CalendarContract.Events.CALENDAR_ID,
+                CalendarContract.Events.TITLE,
+                CalendarContract.Events.DTSTART,
+                CalendarContract.Events.DTEND,
+                CalendarContract.Events.ALL_DAY,
+                CalendarContract.Events.CALENDAR_COLOR,
+                CalendarContract.Events.EVENT_LOCATION,
+            )
+            resolver.query(uri, projection, null, null, null)?.use { cursor ->
+                if (!cursor.moveToFirst()) return@withContext null
+                val endIdx = cursor.getColumnIndexOrThrow(CalendarContract.Events.DTEND)
+                val startMillis = cursor.getLong(cursor.getColumnIndexOrThrow(CalendarContract.Events.DTSTART))
+                return@withContext EventItem(
+                    id = cursor.getLong(cursor.getColumnIndexOrThrow(CalendarContract.Events._ID)),
+                    calendarId = cursor.getLong(cursor.getColumnIndexOrThrow(CalendarContract.Events.CALENDAR_ID)),
+                    title = cursor.getString(cursor.getColumnIndexOrThrow(CalendarContract.Events.TITLE)).orEmpty(),
+                    begin = startMillis,
+                    // 반복 일정은 DTEND 대신 DURATION을 쓰기도 하지만, 이 함수는 RunCal이 직접 만든
+                    // (반복 없는) 로컬 일정 조회 용도라 DTEND가 항상 채워져 있다고 가정한다.
+                    end = if (cursor.isNull(endIdx)) startMillis else cursor.getLong(endIdx),
+                    allDay = cursor.getInt(cursor.getColumnIndexOrThrow(CalendarContract.Events.ALL_DAY)) != 0,
+                    color = cursor.getInt(cursor.getColumnIndexOrThrow(CalendarContract.Events.CALENDAR_COLOR)),
+                    location = cursor.getString(cursor.getColumnIndexOrThrow(CalendarContract.Events.EVENT_LOCATION)).orEmpty(),
+                )
+            }
+            null
+        } catch (e: SecurityException) {
+            Log.e(TAG, "getEventById failed", e)
+            null
         }
     }
 
@@ -189,7 +239,9 @@ class CalendarRepository(private val context: Context) : EventSource {
         }
         try {
             val uri = ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId)
-            resolver.delete(uri, null, null)
+            val deleted = resolver.delete(uri, null, null)
+            if (deleted > 0) provenanceDao.deleteByCalendarEventId(eventId)
+            deleted
         } catch (e: SecurityException) {
             Log.e(TAG, "deleteEvent failed", e)
             0

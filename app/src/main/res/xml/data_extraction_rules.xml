@@ -5,10 +5,11 @@
 -->
 <data-extraction-rules>
     <cloud-backup>
-        <!-- TODO: Use <include> and <exclude> to control what is backed up.
-        <include .../>
-        <exclude .../>
-        -->
+        <!-- 우리 자체 백업(6단계)이 이미 다루는 것들 — OS 자동 백업이 중복으로 올리지 않게 뺀다.
+             runcal_database에는 Notion 캐시/토큰 관련 데이터가 없지만, 재조회 가능한 캐시성
+             데이터라 애초에 클라우드 백업 대상일 필요가 없다. -->
+        <exclude domain="file" path="backups/" />
+        <exclude domain="database" path="runcal_database" />
     </cloud-backup>
     <!--
     <device-transfer>
