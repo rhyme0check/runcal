@@ -3,6 +3,7 @@ package com.jongsun.runcal.ui.calendar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -38,6 +39,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -45,6 +47,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jongsun.runcal.data.EventItem
 import com.jongsun.runcal.data.isBarWorthy
 import com.jongsun.runcal.data.occursOn
+import com.jongsun.runcal.data.resolveEventColor
+import com.jongsun.runcal.data.room.EventColorStyleEntity
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.YearMonth
@@ -55,6 +59,8 @@ fun MonthlyScreen(viewModel: CalendarViewModel, modifier: Modifier = Modifier) {
     val selectedDate by viewModel.selectedDate.collectAsStateWithLifecycle()
     val weekStartDay by viewModel.weekStartDay.collectAsStateWithLifecycle()
     val monthCache by viewModel.monthCache.collectAsStateWithLifecycle()
+    val colorStyles by viewModel.eventColorStyles.collectAsStateWithLifecycle()
+    val isDarkTheme = isSystemInDarkTheme()
 
     val pagerState = rememberPagerState(
         initialPage = viewModel.pageForYearMonth(YearMonth.from(selectedDate)),
@@ -91,6 +97,8 @@ fun MonthlyScreen(viewModel: CalendarViewModel, modifier: Modifier = Modifier) {
                 events = events,
                 today = viewModel.today,
                 selectedDate = selectedDate,
+                colorStyles = colorStyles,
+                isDarkTheme = isDarkTheme,
                 onDateClick = { date ->
                     viewModel.selectDate(date)
                     sheetDate = date
@@ -105,6 +113,8 @@ fun MonthlyScreen(viewModel: CalendarViewModel, modifier: Modifier = Modifier) {
             SelectedDateAgenda(
                 date = date,
                 events = remember(monthCache, date) { viewModel.eventsForDate(monthCache, date) },
+                colorStyles = colorStyles,
+                isDarkTheme = isDarkTheme,
                 modifier = Modifier.fillMaxWidth(),
             )
         }
@@ -133,6 +143,8 @@ private fun MonthGrid(
     events: List<EventItem>,
     today: LocalDate,
     selectedDate: LocalDate,
+    colorStyles: Map<String, EventColorStyleEntity>,
+    isDarkTheme: Boolean,
     onDateClick: (LocalDate) -> Unit,
 ) {
     val weeks = remember(yearMonth, weekStartDay) { buildMonthGridWeeks(yearMonth, weekStartDay) }
@@ -149,6 +161,8 @@ private fun MonthGrid(
                 allEvents = events,
                 today = today,
                 selectedDate = selectedDate,
+                colorStyles = colorStyles,
+                isDarkTheme = isDarkTheme,
                 onDateClick = onDateClick,
             )
         }
@@ -162,6 +176,8 @@ private fun WeekRow(
     allEvents: List<EventItem>,
     today: LocalDate,
     selectedDate: LocalDate,
+    colorStyles: Map<String, EventColorStyleEntity>,
+    isDarkTheme: Boolean,
     onDateClick: (LocalDate) -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
@@ -181,7 +197,7 @@ private fun WeekRow(
             Row(modifier = Modifier.fillMaxWidth().height(16.dp).padding(vertical = 1.dp)) {
                 for (col in 0 until DAYS_IN_WEEK) {
                     Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
-                        lane.getOrNull(col)?.let { bar -> EventBarChip(bar) }
+                        lane.getOrNull(col)?.let { bar -> EventBarChip(bar, colorStyles, isDarkTheme) }
                     }
                 }
             }
@@ -193,6 +209,8 @@ private fun WeekRow(
                     events = remember(allEvents, day.date) {
                         allEvents.filter { !it.isBarWorthy() && it.occursOn(day.date) }
                     },
+                    colorStyles = colorStyles,
+                    isDarkTheme = isDarkTheme,
                     modifier = Modifier.weight(1f),
                 )
             }
@@ -241,7 +259,8 @@ private fun DayNumberCell(
 }
 
 @Composable
-private fun EventBarChip(bar: EventBar) {
+private fun EventBarChip(bar: EventBar, colorStyles: Map<String, EventColorStyleEntity>, isDarkTheme: Boolean) {
+    val resolved = remember(bar.event, colorStyles, isDarkTheme) { resolveEventColor(bar.event, colorStyles, isDarkTheme) }
     val shape = RoundedCornerShape(
         topStart = if (bar.isTrueStart) 6.dp else 0.dp,
         bottomStart = if (bar.isTrueStart) 6.dp else 0.dp,
@@ -252,15 +271,16 @@ private fun EventBarChip(bar: EventBar) {
         modifier = Modifier
             .fillMaxSize()
             .padding(start = if (bar.isTrueStart) 1.dp else 0.dp, end = if (bar.isTrueEnd) 1.dp else 0.dp)
-            .background(Color(bar.event.color), shape)
+            .background(Color(resolved.backgroundArgb), shape)
             .padding(horizontal = 4.dp),
         contentAlignment = Alignment.CenterStart,
     ) {
         if (bar.isTrueStart) {
             Text(
                 text = bar.event.title,
-                color = Color.White,
+                color = Color(resolved.textArgb),
                 style = MaterialTheme.typography.labelSmall,
+                fontWeight = if (resolved.bold) FontWeight.Bold else FontWeight.Normal,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -269,19 +289,26 @@ private fun EventBarChip(bar: EventBar) {
 }
 
 @Composable
-private fun DayTimedEventsPreview(events: List<EventItem>, modifier: Modifier = Modifier) {
+private fun DayTimedEventsPreview(
+    events: List<EventItem>,
+    colorStyles: Map<String, EventColorStyleEntity>,
+    isDarkTheme: Boolean,
+    modifier: Modifier = Modifier,
+) {
     Column(modifier = modifier.padding(horizontal = 1.dp)) {
         events.take(2).forEach { event ->
+            val resolved = remember(event, colorStyles, isDarkTheme) { resolveEventColor(event, colorStyles, isDarkTheme) }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     modifier = Modifier
                         .size(4.dp)
-                        .background(Color(event.color), CircleShape),
+                        .background(Color(resolved.backgroundArgb), CircleShape),
                 )
                 Spacer(modifier = Modifier.width(2.dp))
                 Text(
                     text = event.title,
                     style = MaterialTheme.typography.labelSmall,
+                    fontWeight = if (resolved.bold) FontWeight.Bold else FontWeight.Normal,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -291,7 +318,13 @@ private fun DayTimedEventsPreview(events: List<EventItem>, modifier: Modifier = 
 }
 
 @Composable
-private fun SelectedDateAgenda(date: LocalDate, events: List<EventItem>, modifier: Modifier = Modifier) {
+private fun SelectedDateAgenda(
+    date: LocalDate,
+    events: List<EventItem>,
+    colorStyles: Map<String, EventColorStyleEntity>,
+    isDarkTheme: Boolean,
+    modifier: Modifier = Modifier,
+) {
     Column(modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
         Text(
             text = date.titleKorean(),
@@ -303,7 +336,7 @@ private fun SelectedDateAgenda(date: LocalDate, events: List<EventItem>, modifie
         } else {
             LazyColumn {
                 items(events.sortedBy { it.begin }) { event ->
-                    EventRow(event = event, referenceDate = date)
+                    EventRow(event = event, referenceDate = date, colorStyles = colorStyles, isDarkTheme = isDarkTheme)
                 }
             }
         }

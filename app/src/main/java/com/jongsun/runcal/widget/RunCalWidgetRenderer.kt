@@ -14,10 +14,12 @@ import com.jongsun.runcal.MainActivity
 import com.jongsun.runcal.R
 import com.jongsun.runcal.data.CalendarRepository
 import com.jongsun.runcal.data.EventItem
+import com.jongsun.runcal.data.ResolvedEventColor
 import com.jongsun.runcal.data.dateRange
 import com.jongsun.runcal.data.hasCalendarReadPermission
 import com.jongsun.runcal.data.notion.NotionEventSource
 import com.jongsun.runcal.data.occursOn
+import com.jongsun.runcal.data.resolveEventColor
 import com.jongsun.runcal.data.room.RunCalDatabase
 import com.jongsun.runcal.data.source.EventRepository
 import com.jongsun.runcal.data.source.SourceSelection
@@ -136,6 +138,7 @@ object RunCalWidgetRenderer {
         val zone = ZoneId.systemDefault()
         val (gridStart, gridEndExclusive) = monthGridDateRange(weeks)
         val events = fetchEventsForDateRange(context, preset, gridStart, gridEndExclusive, zone)
+        val resolvedColors = resolveEventColors(context, events)
         Log.d(TAG, "renderMonthly: appWidgetId=$appWidgetId fetched ${events.size} event(s)")
 
         val root = RemoteViews(context.packageName, R.layout.widget_root)
@@ -177,6 +180,7 @@ object RunCalWidgetRenderer {
                     textSizes = textSizes,
                     maxBarsPerCell = maxBarsPerCell,
                     dotMode = dotMode,
+                    resolvedColors = resolvedColors,
                 )
                 weekRow.addView(DAY_SLOT_IDS[dayIndex], cell)
             }
@@ -247,6 +251,7 @@ object RunCalWidgetRenderer {
         textSizes: WidgetTextSizes,
         maxBarsPerCell: Int,
         dotMode: Boolean,
+        resolvedColors: Map<Long, ResolvedEventColor>,
     ): RemoteViews {
         val isToday = day.date == today
         val cell = RemoteViews(context.packageName, R.layout.widget_day_cell)
@@ -272,7 +277,7 @@ object RunCalWidgetRenderer {
             // 컴팩트: 레인 계산은 그대로 재사용하되(정렬/색상 일관성), 막대 대신 점 하나만 그린다.
             // 화면이 좁아 "+N" 없이 있는 레인만큼만 그린다.
             barsForCol.forEach { bar ->
-                cell.addView(R.id.day_events_container, buildDotView(context, bar))
+                cell.addView(R.id.day_events_container, buildDotView(context, bar, resolvedColors))
             }
         } else {
             // "+N"은 칸의 막대 한도(maxBarsPerCell)를 넘어서는 추가 줄이 아니라, 그 한도 안의 마지막
@@ -294,7 +299,7 @@ object RunCalWidgetRenderer {
                 // 보여준다 — 여러 주에 걸치는 일정은 각 행에서 한 번씩 제목이 다시 보여야 한다
                 // (매주 앞쪽으로 스크롤해 원래 시작일을 확인할 필요가 없도록).
                 val showText = bar != null && dayIndex == bar.startCol
-                cell.addView(R.id.day_events_container, buildBarView(context, bar, showText, textSizes))
+                cell.addView(R.id.day_events_container, buildBarView(context, bar, showText, textSizes, resolvedColors))
             }
             if (displayOverflow > 0) {
                 cell.addView(R.id.day_events_container, buildOverflowView(context, displayOverflow, textSizes))
@@ -317,17 +322,30 @@ object RunCalWidgetRenderer {
      * 레인 한 칸을 그린다. [bar]가 null이면(이 칸엔 일정이 없지만 다른 칸에 걸친 레인이라 자리는 차지)
      * 배경 없는 투명 스페이서로 그려 다른 요일과 세로 정렬을 맞춘다.
      */
-    private fun buildBarView(context: Context, bar: EventBar?, showText: Boolean, textSizes: WidgetTextSizes): RemoteViews {
+    private fun buildBarView(
+        context: Context,
+        bar: EventBar?,
+        showText: Boolean,
+        textSizes: WidgetTextSizes,
+        resolvedColors: Map<Long, ResolvedEventColor>,
+    ): RemoteViews {
         val view = RemoteViews(context.packageName, R.layout.widget_event_bar)
         view.setViewLayoutHeight(R.id.bar_root, textSizes.barHeightDp, TypedValue.COMPLEX_UNIT_DIP)
         view.setTextViewTextSize(R.id.bar_text, TypedValue.COMPLEX_UNIT_SP, textSizes.scheduleSp)
+        view.setTextViewTextSize(R.id.bar_text_bold, TypedValue.COMPLEX_UNIT_SP, textSizes.scheduleSp)
 
         if (bar == null) {
             view.setViewVisibility(R.id.bar_background, View.GONE)
             view.setTextViewText(R.id.bar_text, "")
+            view.setViewVisibility(R.id.bar_text, View.VISIBLE)
+            view.setViewVisibility(R.id.bar_text_bold, View.GONE)
             return view
         }
 
+        val resolved = resolvedColors[bar.event.id]
+        val backgroundArgb = resolved?.backgroundArgb ?: bar.event.color
+        val textArgb = resolved?.textArgb ?: contrastingTextColor(backgroundArgb)
+        val bold = resolved?.bold == true
         val cornerDrawable = when {
             bar.isTrueStart && bar.isTrueEnd -> R.drawable.widget_bar_single
             bar.isTrueStart -> R.drawable.widget_bar_start
@@ -337,9 +355,16 @@ object RunCalWidgetRenderer {
         // TextView는 setColorFilter를 지원하지 않아 배경은 별도 ImageView(bar_background)에 그린다.
         view.setViewVisibility(R.id.bar_background, View.VISIBLE)
         view.setImageViewResource(R.id.bar_background, cornerDrawable)
-        view.setInt(R.id.bar_background, "setColorFilter", bar.event.color)
-        view.setTextViewText(R.id.bar_text, if (showText) bar.event.title else "")
-        view.setTextColor(R.id.bar_text, contrastingTextColor(bar.event.color))
+        view.setInt(R.id.bar_background, "setColorFilter", backgroundArgb)
+        val text = if (showText) bar.event.title else ""
+        // RemoteViews는 setTypeface/setTextAppearance 리플렉션을 허용하지 않아(ActionException),
+        // 굵기는 같은 자리에 겹쳐둔 두 TextView(bar_text/bar_text_bold) 중 하나만 보이는 방식으로 낸다.
+        view.setViewVisibility(R.id.bar_text, if (bold) View.GONE else View.VISIBLE)
+        view.setViewVisibility(R.id.bar_text_bold, if (bold) View.VISIBLE else View.GONE)
+        view.setTextViewText(R.id.bar_text, text)
+        view.setTextColor(R.id.bar_text, textArgb)
+        view.setTextViewText(R.id.bar_text_bold, text)
+        view.setTextColor(R.id.bar_text_bold, textArgb)
         return view
     }
 
@@ -354,13 +379,14 @@ object RunCalWidgetRenderer {
     }
 
     /** 컴팩트 위젯 전용: 막대 대신 색 점 하나(또는 자리만 차지하는 빈 칸)만 그린다. */
-    private fun buildDotView(context: Context, bar: EventBar?): RemoteViews {
+    private fun buildDotView(context: Context, bar: EventBar?, resolvedColors: Map<Long, ResolvedEventColor>): RemoteViews {
         val view = RemoteViews(context.packageName, R.layout.widget_day_dot)
         if (bar == null) {
             view.setViewVisibility(R.id.day_dot_image, View.INVISIBLE)
         } else {
             view.setViewVisibility(R.id.day_dot_image, View.VISIBLE)
-            view.setInt(R.id.day_dot_image, "setColorFilter", bar.event.color)
+            val backgroundArgb = resolvedColors[bar.event.id]?.backgroundArgb ?: bar.event.color
+            view.setInt(R.id.day_dot_image, "setColorFilter", backgroundArgb)
         }
         return view
     }
@@ -442,6 +468,7 @@ object RunCalWidgetRenderer {
         val events = fetchEventsForDateRange(context, preset, today, today.plusDays(1), zone)
             .filter { it.occursOn(today, zone) }
             .sortedBy { it.begin }
+        val resolvedColors = resolveEventColors(context, events)
 
         val root = RemoteViews(context.packageName, R.layout.widget_today_horizontal)
         root.setInt(R.id.widget_background, "setColorFilter", backgroundColorInt)
@@ -454,7 +481,7 @@ object RunCalWidgetRenderer {
         root.setTextColor(R.id.today_label, RunCalWidgetColorRes.onBackground(context))
 
         val maxRows = maxListRowsFor(settings.fontScaleStep, base = 5)
-        renderEventRows(context, root, R.id.event_list_container, appWidgetId, events, maxRows, EVENT_ROW_SLOT_BASE, textSizes, zone)
+        renderEventRows(context, root, R.id.event_list_container, appWidgetId, events, maxRows, EVENT_ROW_SLOT_BASE, textSizes, zone, resolvedColors)
 
         Log.d(TAG, "renderTodayHorizontal: appWidgetId=$appWidgetId built in ${System.currentTimeMillis() - renderStartMillis}ms")
         return root
@@ -472,6 +499,7 @@ object RunCalWidgetRenderer {
         val allEvents = fetchEventsForDateRange(context, preset, today, today.plusDays(2), zone)
         val todayEvents = allEvents.filter { it.occursOn(today, zone) }.sortedBy { it.begin }
         val tomorrowEvents = allEvents.filter { it.occursOn(tomorrow, zone) }.sortedBy { it.begin }
+        val resolvedColors = resolveEventColors(context, allEvents)
 
         val root = RemoteViews(context.packageName, R.layout.widget_today_vertical)
         root.setInt(R.id.widget_background, "setColorFilter", backgroundColorInt)
@@ -486,10 +514,10 @@ object RunCalWidgetRenderer {
         root.setTextColor(R.id.tomorrow_section_label, RunCalWidgetColorRes.onBackground(context))
 
         val maxRows = maxListRowsFor(settings.fontScaleStep, base = 3)
-        renderEventRows(context, root, R.id.today_list_container, appWidgetId, todayEvents, maxRows, EVENT_ROW_SLOT_BASE, textSizes, zone)
+        renderEventRows(context, root, R.id.today_list_container, appWidgetId, todayEvents, maxRows, EVENT_ROW_SLOT_BASE, textSizes, zone, resolvedColors)
         renderEventRows(
             context, root, R.id.tomorrow_list_container, appWidgetId, tomorrowEvents, maxRows,
-            EVENT_ROW_SLOT_BASE + EVENT_ROW_SLOT_TOMORROW_OFFSET, textSizes, zone,
+            EVENT_ROW_SLOT_BASE + EVENT_ROW_SLOT_TOMORROW_OFFSET, textSizes, zone, resolvedColors,
         )
 
         Log.d(TAG, "renderTodayVertical: appWidgetId=$appWidgetId built in ${System.currentTimeMillis() - renderStartMillis}ms")
@@ -521,6 +549,7 @@ object RunCalWidgetRenderer {
         rowSlotBase: Int,
         textSizes: WidgetTextSizes,
         zone: ZoneId,
+        resolvedColors: Map<Long, ResolvedEventColor>,
     ) {
         root.removeAllViews(containerId)
         if (events.isEmpty()) {
@@ -529,7 +558,7 @@ object RunCalWidgetRenderer {
         }
         val visible = events.take(maxRows)
         visible.forEachIndexed { index, event ->
-            root.addView(containerId, buildEventListRow(context, appWidgetId, event, rowSlotBase + index, textSizes, zone))
+            root.addView(containerId, buildEventListRow(context, appWidgetId, event, rowSlotBase + index, textSizes, zone, resolvedColors))
         }
         val overflow = events.size - visible.size
         if (overflow > 0) {
@@ -553,16 +582,26 @@ object RunCalWidgetRenderer {
         slot: Int,
         textSizes: WidgetTextSizes,
         zone: ZoneId,
+        resolvedColors: Map<Long, ResolvedEventColor>,
     ): RemoteViews {
+        val resolved = resolvedColors[event.id]
+        val bold = resolved?.bold == true
         val row = RemoteViews(context.packageName, R.layout.widget_event_list_row)
         row.setViewVisibility(R.id.event_row_dot, View.VISIBLE)
-        row.setInt(R.id.event_row_dot, "setColorFilter", event.color)
+        row.setInt(R.id.event_row_dot, "setColorFilter", resolved?.backgroundArgb ?: event.color)
         row.setTextViewTextSize(R.id.event_row_time, TypedValue.COMPLEX_UNIT_SP, textSizes.scheduleSp)
         row.setTextViewTextSize(R.id.event_row_title, TypedValue.COMPLEX_UNIT_SP, textSizes.scheduleSp)
+        row.setTextViewTextSize(R.id.event_row_title_bold, TypedValue.COMPLEX_UNIT_SP, textSizes.scheduleSp)
         row.setTextViewText(R.id.event_row_time, formatEventTime(event, zone))
         row.setTextColor(R.id.event_row_time, RunCalWidgetColorRes.onBackgroundDim(context))
+        // RemoteViews는 setTypeface/setTextAppearance 리플렉션을 허용하지 않아(ActionException),
+        // 굵기는 같은 자리에 겹쳐둔 두 TextView 중 하나만 보이는 방식으로 낸다.
+        row.setViewVisibility(R.id.event_row_title, if (bold) View.GONE else View.VISIBLE)
+        row.setViewVisibility(R.id.event_row_title_bold, if (bold) View.VISIBLE else View.GONE)
         row.setTextViewText(R.id.event_row_title, event.title)
         row.setTextColor(R.id.event_row_title, RunCalWidgetColorRes.onBackground(context))
+        row.setTextViewText(R.id.event_row_title_bold, event.title)
+        row.setTextColor(R.id.event_row_title_bold, RunCalWidgetColorRes.onBackground(context))
 
         // 일정 탭 → 해당 일정이 있는 날짜로 앱 진입(날짜 셀 탭과 같은 경로 재사용).
         val eventDate = event.dateRange(zone).start
@@ -587,6 +626,17 @@ object RunCalWidgetRenderer {
     /** 글자크기 단계가 커질수록 한 줄이 차지하는 공간도 커지므로, 보여줄 최대 행 수를 살짝 줄인다. */
     private fun maxListRowsFor(fontScaleStep: Int, base: Int): Int =
         (base - (fontScaleStep - DEFAULT_FONT_SCALE_STEP)).coerceAtLeast(1)
+
+    /**
+     * [events]마다 그릴 색/굵기를 한 번에 계산한다. 색상 스타일 테이블은 앱 설정에서 바뀌므로
+     * Room 조회가 필요하지만(캐시만, 네트워크 없음) 행 수만큼 조회하지 않도록 렌더 1회당 한 번만
+     * 부른다 — Notion 캐시 조회와 마찬가지로 200ms 예산에 무시할 수준(단일 쿼리)이다.
+     */
+    private suspend fun resolveEventColors(context: Context, events: List<EventItem>): Map<Long, ResolvedEventColor> {
+        val styleMap = RunCalDatabase.getInstance(context).eventColorStyleDao().getAll().associateBy { it.sourceKey }
+        val isDark = isDarkMode(context)
+        return events.associate { it.id to resolveEventColor(it, styleMap, isDark) }
+    }
 
     /**
      * 캘린더 + Notion을 [EventRepository]로 합쳐 조회한다. Notion 쪽은 Room 캐시만 읽으므로

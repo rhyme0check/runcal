@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Today
 import androidx.compose.material.icons.filled.ViewDay
@@ -35,6 +36,7 @@ import com.jongsun.runcal.DeepLinkTarget
 enum class RunCalTab {
     MONTHLY,
     DAILY,
+    LIST,
     SETTINGS,
 }
 
@@ -95,12 +97,13 @@ fun RunCalMainScaffold(
                             text = when (selectedTab) {
                                 RunCalTab.MONTHLY -> visibleYearMonth.titleKorean()
                                 RunCalTab.DAILY -> selectedDate.titleKorean()
+                                RunCalTab.LIST -> "목록"
                                 RunCalTab.SETTINGS -> "설정"
                             },
                         )
                     },
                     actions = {
-                        if (selectedTab != RunCalTab.SETTINGS) {
+                        if (selectedTab == RunCalTab.MONTHLY || selectedTab == RunCalTab.DAILY) {
                             IconButton(onClick = { viewModel.requestJumpToday() }) {
                                 Icon(Icons.Default.Today, contentDescription = "오늘로 이동")
                             }
@@ -126,6 +129,12 @@ fun RunCalMainScaffold(
                         label = { Text("일간") },
                     )
                     NavigationBarItem(
+                        selected = selectedTab == RunCalTab.LIST,
+                        onClick = { selectedTab = RunCalTab.LIST },
+                        icon = { Icon(Icons.Default.List, contentDescription = null) },
+                        label = { Text("목록") },
+                    )
+                    NavigationBarItem(
                         selected = selectedTab == RunCalTab.SETTINGS,
                         onClick = { selectedTab = RunCalTab.SETTINGS },
                         icon = { Icon(Icons.Default.Settings, contentDescription = null) },
@@ -138,6 +147,13 @@ fun RunCalMainScaffold(
                 when (selectedTab) {
                     RunCalTab.MONTHLY -> MonthlyScreen(viewModel)
                     RunCalTab.DAILY -> DailyScreen(viewModel)
+                    RunCalTab.LIST -> ListScreen(
+                        viewModel = viewModel,
+                        onNavigateToDate = { date ->
+                            viewModel.selectDate(date)
+                            selectedTab = RunCalTab.DAILY
+                        },
+                    )
                     RunCalTab.SETTINGS -> SettingsScreen(viewModel)
                 }
             }

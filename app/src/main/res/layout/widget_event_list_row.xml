@@ -32,4 +32,18 @@
         android:ellipsize="end"
         android:textSize="10sp" />
 
+    <!-- RemoteViews는 setTypeface/setTextAppearance를 리플렉션으로 허용하지 않아, 굵게 표시는
+         같은 자리의 굵은 글씨 TextView를 visibility로 토글하는 방식으로 구현한다. -->
+    <TextView
+        android:id="@+id/event_row_title_bold"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:layout_marginStart="4dp"
+        android:singleLine="true"
+        android:ellipsize="end"
+        android:textStyle="bold"
+        android:textSize="10sp"
+        android:visibility="gone" />
+
 </LinearLayout>

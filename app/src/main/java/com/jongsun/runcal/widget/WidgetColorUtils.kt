@@ -6,16 +6,19 @@ import androidx.annotation.ColorInt
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.ColorUtils
 import com.jongsun.runcal.R
+import com.jongsun.runcal.data.contrastingTextColorArgb
 
 private val DAY_BASE_BACKGROUND_ARGB = 0xFFFFFFFF.toInt()
 private val NIGHT_BASE_BACKGROUND_ARGB = 0xFF1C1B1F.toInt()
 
+/** 위젯은 Compose가 아니라 RemoteViews라 isSystemInDarkTheme()를 못 쓰므로 Configuration을 직접 본다. */
+fun isDarkMode(context: Context): Boolean =
+    (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+
 /** 시스템 다크/라이트 모드 기준 배경 베이스 색상에 [opacity](0~1)를 적용한 배경색을 만든다. */
 @ColorInt
 fun resolveBackgroundColorInt(context: Context, opacity: Float): Int {
-    val isNightMode = (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
-        Configuration.UI_MODE_NIGHT_YES
-    val base = if (isNightMode) NIGHT_BASE_BACKGROUND_ARGB else DAY_BASE_BACKGROUND_ARGB
+    val base = if (isDarkMode(context)) NIGHT_BASE_BACKGROUND_ARGB else DAY_BASE_BACKGROUND_ARGB
     val alpha = (opacity.coerceIn(0f, 1f) * 255).toInt()
     return ColorUtils.setAlphaComponent(base, alpha)
 }
@@ -41,7 +44,4 @@ object RunCalWidgetColorRes {
 
 /** 배경색 밝기에 따라 흰색/검정 중 대비가 더 큰 텍스트 색을 고른다(막대 위 제목 텍스트용). */
 @ColorInt
-fun contrastingTextColor(@ColorInt backgroundColor: Int): Int {
-    val luminance = ColorUtils.calculateLuminance(backgroundColor)
-    return if (luminance > 0.5) 0xFF000000.toInt() else 0xFFFFFFFF.toInt()
-}
+fun contrastingTextColor(@ColorInt backgroundColor: Int): Int = contrastingTextColorArgb(backgroundColor)

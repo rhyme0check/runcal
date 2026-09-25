@@ -23,4 +23,18 @@
         android:paddingEnd="2dp"
         android:gravity="center_vertical" />
 
+    <!-- RemoteViews는 setTypeface/setTextAppearance를 리플렉션으로 허용하지 않아, 굵게 표시는
+         똑같은 자리에 겹쳐 둔 굵은 글씨 TextView를 visibility로 토글하는 방식으로 구현한다. -->
+    <TextView
+        android:id="@+id/bar_text_bold"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:singleLine="true"
+        android:ellipsize="end"
+        android:paddingStart="3dp"
+        android:paddingEnd="2dp"
+        android:gravity="center_vertical"
+        android:textStyle="bold"
+        android:visibility="gone" />
+
 </FrameLayout>

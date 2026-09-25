@@ -16,6 +16,7 @@ import com.jongsun.runcal.data.EventItem
 import com.jongsun.runcal.data.notion.NotionApiClient
 import com.jongsun.runcal.data.notion.NotionDatabaseSchemaResponse
 import com.jongsun.runcal.data.occursOn
+import com.jongsun.runcal.data.room.EventColorStyleEntity
 import com.jongsun.runcal.data.room.NotionDatabaseEntity
 import com.jongsun.runcal.data.room.RunCalDatabase
 import com.jongsun.runcal.data.notion.NotionEventSource
@@ -91,11 +92,15 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
     private val _notionDatabases = MutableStateFlow<List<NotionDatabaseEntity>>(emptyList())
     val notionDatabases: StateFlow<List<NotionDatabaseEntity>> = _notionDatabases.asStateFlow()
 
+    // sourceKey("calendar:<id>" | "notion:<registrationId>") → 스타일. 앱/위젯이 공유하는 Room에서
+    // 읽으므로 설정 화면에서 바꾸면 위젯도 같은 값을 보게 된다.
+    private val _eventColorStyles = MutableStateFlow<Map<String, EventColorStyleEntity>>(emptyMap())
+    val eventColorStyles: StateFlow<Map<String, EventColorStyleEntity>> = _eventColorStyles.asStateFlow()
+
     private val _monthCache = MutableStateFlow<Map<YearMonth, List<EventItem>>>(emptyMap())
     val monthCache: StateFlow<Map<YearMonth, List<EventItem>>> = _monthCache.asStateFlow()
 
     private val loadingMonths = mutableSetOf<YearMonth>()
-    private var settingsInitialized = false
 
     init {
         viewModelScope.launch {
@@ -110,15 +115,19 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
                 _presets.value = settings.presets
                 _activePresetId.value = settings.activePresetId
                 _notionSyncIntervalHours.value = settings.notionSyncIntervalHours
-                if (settingsInitialized && (calendarFilterChanged || notionFilterChanged || weekStartChanged)) {
+                // DataStore의 첫 값이 도착하기 전에 Monthly/Daily가 먼저 컴포지션되어
+                // ensureMonthLoaded가 기본값(빈 Notion 필터)으로 먼저 캐시를 채워버릴 수 있다.
+                // "최초 로드였는지"로 걸러내면 그 잘못 채워진 캐시를 영영 못 고치므로, 매번
+                // 비교해서 실제로 달라졌을 때는(최초든 아니든) 무조건 무효화한다.
+                if (calendarFilterChanged || notionFilterChanged || weekStartChanged) {
                     invalidateCache()
                     ensureMonthLoaded(_visibleYearMonth.value, force = true)
                 }
-                settingsInitialized = true
             }
         }
         viewModelScope.launch { refreshCalendars() }
         viewModelScope.launch { refreshNotionDatabases() }
+        viewModelScope.launch { refreshEventColorStyles() }
     }
 
     suspend fun refreshCalendars() {
@@ -127,6 +136,21 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
 
     suspend fun refreshNotionDatabases() {
         _notionDatabases.value = db.notionDatabaseDao().getAll()
+    }
+
+    suspend fun refreshEventColorStyles() {
+        _eventColorStyles.value = db.eventColorStyleDao().getAll().associateBy { it.sourceKey }
+    }
+
+    /**
+     * 소스 하나의 색상 스타일을 저장한다. [paletteKey]가 null이면 "시스템 기본"(오버라이드 해제).
+     * 위젯도 같은 Room 값을 읽으므로, 앱 캐시엔 영향이 없지만(원본 event.color는 그대로 두고
+     * 그리는 시점에만 해석) 위젯은 즉시 다시 그려줘야 화면에 반영된다.
+     */
+    suspend fun setEventColorStyle(sourceKey: String, paletteKey: String?, bold: Boolean) {
+        db.eventColorStyleDao().upsert(EventColorStyleEntity(sourceKey, paletteKey, bold))
+        refreshEventColorStyles()
+        RunCalWidgetRenderer.updateAllWidgets(getApplication())
     }
 
     fun setVisibleYearMonth(yearMonth: YearMonth) {

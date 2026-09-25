@@ -178,6 +178,11 @@ fun SettingsScreen(viewModel: CalendarViewModel, modifier: Modifier = Modifier) 
 
         item {
             HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+            ColorStyleSettingsSection(viewModel = viewModel)
+        }
+
+        item {
+            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
             Text(text = "주 시작 요일", style = MaterialTheme.typography.titleMedium)
             Row(modifier = Modifier.padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(

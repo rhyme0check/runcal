@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
@@ -23,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jongsun.runcal.data.EventItem
 import com.jongsun.runcal.data.isBarWorthy
+import com.jongsun.runcal.data.room.EventColorStyleEntity
 import java.time.LocalDate
 import java.time.YearMonth
 
@@ -30,6 +32,8 @@ import java.time.YearMonth
 fun DailyScreen(viewModel: CalendarViewModel, modifier: Modifier = Modifier) {
     val selectedDate by viewModel.selectedDate.collectAsStateWithLifecycle()
     val monthCache by viewModel.monthCache.collectAsStateWithLifecycle()
+    val colorStyles by viewModel.eventColorStyles.collectAsStateWithLifecycle()
+    val isDarkTheme = isSystemInDarkTheme()
 
     val pagerState = rememberPagerState(
         initialPage = viewModel.pageForDate(selectedDate),
@@ -57,12 +61,18 @@ fun DailyScreen(viewModel: CalendarViewModel, modifier: Modifier = Modifier) {
         val date = viewModel.dateForPage(page)
         LaunchedEffect(date) { viewModel.ensureMonthLoaded(YearMonth.from(date)) }
         val dayEvents = remember(monthCache, date) { viewModel.eventsForDate(monthCache, date) }
-        DayAgendaContent(date = date, events = dayEvents)
+        DayAgendaContent(date = date, events = dayEvents, colorStyles = colorStyles, isDarkTheme = isDarkTheme)
     }
 }
 
 @Composable
-private fun DayAgendaContent(date: LocalDate, events: List<EventItem>, modifier: Modifier = Modifier) {
+private fun DayAgendaContent(
+    date: LocalDate,
+    events: List<EventItem>,
+    colorStyles: Map<String, EventColorStyleEntity>,
+    isDarkTheme: Boolean,
+    modifier: Modifier = Modifier,
+) {
     val (allDayEvents, timedEvents) = remember(events) { events.partition { it.isBarWorthy() } }
     val sortedTimed = remember(timedEvents) { timedEvents.sortedBy { it.begin } }
 
@@ -82,10 +92,14 @@ private fun DayAgendaContent(date: LocalDate, events: List<EventItem>, modifier:
                     modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
                 )
             }
-            items(allDayEvents) { event -> EventRow(event = event, referenceDate = date) }
+            items(allDayEvents) { event ->
+                EventRow(event = event, referenceDate = date, colorStyles = colorStyles, isDarkTheme = isDarkTheme)
+            }
             item { HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp)) }
         }
-        items(sortedTimed) { event -> EventRow(event = event, referenceDate = date) }
+        items(sortedTimed) { event ->
+            EventRow(event = event, referenceDate = date, colorStyles = colorStyles, isDarkTheme = isDarkTheme)
+        }
         item {
             // 리스트 하단 여백
             Spacer(modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp))
