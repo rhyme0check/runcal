@@ -3,7 +3,10 @@ package com.jongsun.runcal.ui.calendar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -23,7 +26,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
@@ -45,6 +52,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jongsun.runcal.data.EventItem
+import com.jongsun.runcal.data.dateRange
 import com.jongsun.runcal.data.isBarWorthy
 import com.jongsun.runcal.data.occursOn
 import com.jongsun.runcal.data.resolveEventColor
@@ -84,6 +92,9 @@ fun MonthlyScreen(viewModel: CalendarViewModel, modifier: Modifier = Modifier) {
 
     // 탭한 날짜의 일정을 보여줄 하단 시트. null이면 시트를 숨긴다.
     var sheetDate by remember { mutableStateOf<LocalDate?>(null) }
+    // P2 편집: 생성 시 날짜만 있고 대상 일정은 없음(null), 수정 시 둘 다 있음.
+    var editingEvent by remember { mutableStateOf<EventItem?>(null) }
+    var creatingDate by remember { mutableStateOf<LocalDate?>(null) }
 
     Column(modifier = modifier.fillMaxSize()) {
         WeekdayHeaderRow(weekStartDay)
@@ -103,6 +114,10 @@ fun MonthlyScreen(viewModel: CalendarViewModel, modifier: Modifier = Modifier) {
                     viewModel.selectDate(date)
                     sheetDate = date
                 },
+                onDateLongClick = { date ->
+                    viewModel.selectDate(date)
+                    creatingDate = date
+                },
             )
         }
     }
@@ -116,8 +131,19 @@ fun MonthlyScreen(viewModel: CalendarViewModel, modifier: Modifier = Modifier) {
                 colorStyles = colorStyles,
                 isDarkTheme = isDarkTheme,
                 modifier = Modifier.fillMaxWidth(),
+                onAddClick = { creatingDate = date },
+                onEventClick = { event -> editingEvent = event },
             )
         }
+    }
+
+    if (editingEvent != null || creatingDate != null) {
+        EventEditDialog(
+            viewModel = viewModel,
+            existing = editingEvent,
+            initialDate = creatingDate ?: editingEvent?.dateRange()?.start ?: selectedDate,
+            onDismiss = { editingEvent = null; creatingDate = null },
+        )
     }
 }
 
@@ -146,6 +172,7 @@ private fun MonthGrid(
     colorStyles: Map<String, EventColorStyleEntity>,
     isDarkTheme: Boolean,
     onDateClick: (LocalDate) -> Unit,
+    onDateLongClick: (LocalDate) -> Unit,
 ) {
     val weeks = remember(yearMonth, weekStartDay) { buildMonthGridWeeks(yearMonth, weekStartDay) }
     Column(
@@ -164,6 +191,7 @@ private fun MonthGrid(
                 colorStyles = colorStyles,
                 isDarkTheme = isDarkTheme,
                 onDateClick = onDateClick,
+                onDateLongClick = onDateLongClick,
             )
         }
     }
@@ -179,6 +207,7 @@ private fun WeekRow(
     colorStyles: Map<String, EventColorStyleEntity>,
     isDarkTheme: Boolean,
     onDateClick: (LocalDate) -> Unit,
+    onDateLongClick: (LocalDate) -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
         Row(modifier = Modifier.fillMaxWidth()) {
@@ -188,6 +217,7 @@ private fun WeekRow(
                     isToday = day.date == today,
                     isSelected = day.date == selectedDate,
                     onClick = { onDateClick(day.date) },
+                    onLongClick = { onDateLongClick(day.date) },
                     modifier = Modifier.weight(1f),
                 )
             }
@@ -218,12 +248,14 @@ private fun WeekRow(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun DayNumberCell(
     day: MonthGridDay,
     isToday: Boolean,
     isSelected: Boolean,
     onClick: () -> Unit,
+    onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val textColor = when {
@@ -233,7 +265,7 @@ private fun DayNumberCell(
     Box(
         modifier = modifier
             .padding(vertical = 4.dp)
-            .clickable(onClick = onClick),
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
         contentAlignment = Alignment.Center,
     ) {
         Box(
@@ -324,19 +356,34 @@ private fun SelectedDateAgenda(
     colorStyles: Map<String, EventColorStyleEntity>,
     isDarkTheme: Boolean,
     modifier: Modifier = Modifier,
+    onAddClick: () -> Unit = {},
+    onEventClick: (EventItem) -> Unit = {},
 ) {
     Column(modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-        Text(
-            text = date.titleKorean(),
-            style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.padding(vertical = 8.dp),
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = date.titleKorean(),
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(vertical = 8.dp),
+            )
+            IconButton(onClick = onAddClick) { Icon(Icons.Default.Add, contentDescription = "일정 추가") }
+        }
         if (events.isEmpty()) {
             Text(text = "일정이 없습니다", style = MaterialTheme.typography.bodyMedium)
         } else {
             LazyColumn {
                 items(events.sortedBy { it.begin }) { event ->
-                    EventRow(event = event, referenceDate = date, colorStyles = colorStyles, isDarkTheme = isDarkTheme)
+                    EventRow(
+                        event = event,
+                        referenceDate = date,
+                        colorStyles = colorStyles,
+                        isDarkTheme = isDarkTheme,
+                        onClick = onEventClick,
+                    )
                 }
             }
         }

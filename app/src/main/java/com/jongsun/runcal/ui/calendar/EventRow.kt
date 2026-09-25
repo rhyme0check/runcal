@@ -1,6 +1,7 @@
 package com.jongsun.runcal.ui.calendar
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -35,12 +36,16 @@ fun EventRow(
     colorStyles: Map<String, EventColorStyleEntity>,
     isDarkTheme: Boolean,
     modifier: Modifier = Modifier,
+    onClick: (EventItem) -> Unit = {},
 ) {
     val zone = remember { ZoneId.systemDefault() }
     val timeLabel = remember(event, referenceDate) { eventTimeLabel(event, referenceDate, zone) }
     val resolved = remember(event, colorStyles, isDarkTheme) { resolveEventColor(event, colorStyles, isDarkTheme) }
 
-    Row(modifier = modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.Top) {
+    Row(
+        modifier = modifier.fillMaxWidth().clickable { onClick(event) }.padding(vertical = 6.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
         Box(
             modifier = Modifier
                 .padding(top = 5.dp)

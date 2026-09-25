@@ -10,13 +10,19 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -34,6 +40,9 @@ fun DailyScreen(viewModel: CalendarViewModel, modifier: Modifier = Modifier) {
     val monthCache by viewModel.monthCache.collectAsStateWithLifecycle()
     val colorStyles by viewModel.eventColorStyles.collectAsStateWithLifecycle()
     val isDarkTheme = isSystemInDarkTheme()
+
+    var editingEvent by remember { mutableStateOf<EventItem?>(null) }
+    var creatingDate by remember { mutableStateOf<LocalDate?>(null) }
 
     val pagerState = rememberPagerState(
         initialPage = viewModel.pageForDate(selectedDate),
@@ -57,11 +66,32 @@ fun DailyScreen(viewModel: CalendarViewModel, modifier: Modifier = Modifier) {
         }
     }
 
-    HorizontalPager(state = pagerState, modifier = modifier.fillMaxSize()) { page ->
-        val date = viewModel.dateForPage(page)
-        LaunchedEffect(date) { viewModel.ensureMonthLoaded(YearMonth.from(date)) }
-        val dayEvents = remember(monthCache, date) { viewModel.eventsForDate(monthCache, date) }
-        DayAgendaContent(date = date, events = dayEvents, colorStyles = colorStyles, isDarkTheme = isDarkTheme)
+    Box(modifier = modifier.fillMaxSize()) {
+        HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
+            val date = viewModel.dateForPage(page)
+            LaunchedEffect(date) { viewModel.ensureMonthLoaded(YearMonth.from(date)) }
+            val dayEvents = remember(monthCache, date) { viewModel.eventsForDate(monthCache, date) }
+            DayAgendaContent(
+                date = date,
+                events = dayEvents,
+                colorStyles = colorStyles,
+                isDarkTheme = isDarkTheme,
+                onEventClick = { event -> editingEvent = event },
+            )
+        }
+        FloatingActionButton(
+            onClick = { creatingDate = selectedDate },
+            modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+        ) { Icon(Icons.Default.Add, contentDescription = "일정 추가") }
+    }
+
+    if (editingEvent != null || creatingDate != null) {
+        EventEditDialog(
+            viewModel = viewModel,
+            existing = editingEvent,
+            initialDate = creatingDate ?: selectedDate,
+            onDismiss = { editingEvent = null; creatingDate = null },
+        )
     }
 }
 
@@ -72,6 +102,7 @@ private fun DayAgendaContent(
     colorStyles: Map<String, EventColorStyleEntity>,
     isDarkTheme: Boolean,
     modifier: Modifier = Modifier,
+    onEventClick: (EventItem) -> Unit = {},
 ) {
     val (allDayEvents, timedEvents) = remember(events) { events.partition { it.isBarWorthy() } }
     val sortedTimed = remember(timedEvents) { timedEvents.sortedBy { it.begin } }
@@ -93,16 +124,16 @@ private fun DayAgendaContent(
                 )
             }
             items(allDayEvents) { event ->
-                EventRow(event = event, referenceDate = date, colorStyles = colorStyles, isDarkTheme = isDarkTheme)
+                EventRow(event = event, referenceDate = date, colorStyles = colorStyles, isDarkTheme = isDarkTheme, onClick = onEventClick)
             }
             item { HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp)) }
         }
         items(sortedTimed) { event ->
-            EventRow(event = event, referenceDate = date, colorStyles = colorStyles, isDarkTheme = isDarkTheme)
+            EventRow(event = event, referenceDate = date, colorStyles = colorStyles, isDarkTheme = isDarkTheme, onClick = onEventClick)
         }
         item {
-            // 리스트 하단 여백
-            Spacer(modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp))
+            // 리스트 하단 여백(FAB에 안 가리게 여유를 더 둔다)
+            Spacer(modifier = Modifier.fillMaxWidth().padding(bottom = 88.dp))
         }
     }
 }

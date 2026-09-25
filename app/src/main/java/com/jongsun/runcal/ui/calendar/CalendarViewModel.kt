@@ -236,6 +236,60 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
     fun eventsForDate(cache: Map<YearMonth, List<EventItem>>, date: LocalDate): List<EventItem> =
         cache[YearMonth.from(date)].orEmpty().filter { it.occursOn(date, zone) }
 
+    /**
+     * P2 편집 화면 전용 래퍼. 데이터 계층(CalendarRepository)은 화면 상태를 모르므로, 여기서
+     * 캐시 무효화 + 위젯 갱신까지 함께 처리한다 — registerNotionDatabase 등과 같은 패턴.
+     */
+    suspend fun createLocalEvent(
+        calendarId: Long,
+        title: String,
+        startMillis: Long,
+        endMillis: Long,
+        allDay: Boolean,
+        location: String,
+        description: String,
+        reminderMinutes: List<Int>,
+    ): Long {
+        val id = repository.createEvent(calendarId, title, startMillis, endMillis, allDay, location, description, reminderMinutes)
+        if (id > 0) {
+            invalidateCache()
+            ensureMonthLoaded(_visibleYearMonth.value, force = true)
+            RunCalWidgetRenderer.updateAllWidgets(getApplication())
+        }
+        return id
+    }
+
+    suspend fun updateLocalEvent(
+        eventId: Long,
+        title: String,
+        startMillis: Long,
+        endMillis: Long,
+        allDay: Boolean,
+        location: String,
+        description: String,
+        reminderMinutes: List<Int>,
+    ): Int {
+        val updated = repository.updateEvent(eventId, title, startMillis, endMillis, allDay, location, description, reminderMinutes)
+        if (updated > 0) {
+            invalidateCache()
+            ensureMonthLoaded(_visibleYearMonth.value, force = true)
+            RunCalWidgetRenderer.updateAllWidgets(getApplication())
+        }
+        return updated
+    }
+
+    suspend fun deleteLocalEvent(eventId: Long): Int {
+        val deleted = repository.deleteEvent(eventId)
+        if (deleted > 0) {
+            invalidateCache()
+            ensureMonthLoaded(_visibleYearMonth.value, force = true)
+            RunCalWidgetRenderer.updateAllWidgets(getApplication())
+        }
+        return deleted
+    }
+
+    suspend fun getReminders(eventId: Long): List<Int> = repository.getReminders(eventId)
+
     /** 개발/테스트 도구: 로컬 테스트 캘린더를 만들고 위젯/앱 화면을 모두 갱신한다. */
     suspend fun ensureLocalTestCalendar(): Long {
         val id = repository.ensureLocalTestCalendar()

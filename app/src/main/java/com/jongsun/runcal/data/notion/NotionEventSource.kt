@@ -47,6 +47,7 @@ class NotionEventSource(
                 notionPageId = row.notionPageId,
                 notionDatabaseId = row.registrationId,
                 notionStatus = row.statusRaw,
+                notionUrl = row.notionUrl,
             )
         }
     }

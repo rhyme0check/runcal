@@ -8,6 +8,10 @@ data class CalendarInfo(
     val accountName: String,
     val color: Int,
     val visible: Boolean,
+    // CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL >= CAL_ACCESS_CONTRIBUTOR 여부.
+    // 편집 화면의 "소속 캘린더" 선택지를 여기서 걸러서, 쓰기 실패로 이어질 읽기 전용 캘린더를
+    // 애초에 고를 수 없게 한다.
+    val isWritable: Boolean = true,
 )
 
 data class EventItem(
@@ -24,4 +28,8 @@ data class EventItem(
     val notionPageId: String? = null,
     val notionDatabaseId: String? = null,
     val notionStatus: String? = null,
+    // P2(편집) 신규 필드.
+    val description: String = "",
+    // Notion 항목 전용 — 읽기 전용 편집 화면의 "Notion에서 열기" 링크에 쓴다.
+    val notionUrl: String? = null,
 )

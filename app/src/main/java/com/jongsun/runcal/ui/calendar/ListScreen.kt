@@ -20,12 +20,14 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -62,8 +64,8 @@ private enum class ListRangeType { THIS_WEEK, THIS_MONTH, NEXT_MONTH, CUSTOM }
 
 /**
  * 프리셋으로 필터링된 일정을 기간별로 모아 목록으로 보여준다. 색상/굵기는 월간·일간과 같은
- * [resolveEventColor]를 써서 항상 일관되게 표시된다. 항목을 탭하면 [onNavigateToDate]로 그
- * 날짜의 일간 화면으로 전환한다(RunCalMainScaffold가 탭 전환까지 처리).
+ * [resolveEventColor]를 써서 항상 일관되게 표시된다. 항목을 탭하면 P2 편집 다이얼로그가 뜬다
+ * (Notion 항목은 읽기 전용 안내만). [onNavigateToDate]는 아직 다른 진입 경로가 쓴다.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -82,6 +84,8 @@ fun ListScreen(viewModel: CalendarViewModel, onNavigateToDate: (LocalDate) -> Un
     var showEndPicker by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
     var events by remember { mutableStateOf<List<EventItem>>(emptyList()) }
+    var editingEvent by remember { mutableStateOf<EventItem?>(null) }
+    var creatingDate by remember { mutableStateOf<LocalDate?>(null) }
 
     val (rangeStart, rangeEndExclusive) = remember(rangeType, customStart, customEnd, weekStartDay, viewModel.today) {
         when (rangeType) {
@@ -121,7 +125,8 @@ fun ListScreen(viewModel: CalendarViewModel, onNavigateToDate: (LocalDate) -> Un
             .toList()
     }
 
-    Column(modifier = modifier.fillMaxSize()) {
+    Box(modifier = modifier.fillMaxSize()) {
+    Column(modifier = Modifier.fillMaxSize()) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -182,13 +187,27 @@ fun ListScreen(viewModel: CalendarViewModel, onNavigateToDate: (LocalDate) -> Un
                             colorStyles = colorStyles,
                             isDarkTheme = isDarkTheme,
                             zone = zone,
-                            onClick = { onNavigateToDate(date) },
+                            onClick = { editingEvent = event },
                         )
                     }
                 }
-                item { Spacer(modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp)) }
+                item { Spacer(modifier = Modifier.fillMaxWidth().padding(bottom = 88.dp)) }
             }
         }
+    }
+        FloatingActionButton(
+            onClick = { creatingDate = viewModel.today },
+            modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+        ) { Icon(Icons.Default.Add, contentDescription = "일정 추가") }
+    }
+
+    if (editingEvent != null || creatingDate != null) {
+        EventEditDialog(
+            viewModel = viewModel,
+            existing = editingEvent,
+            initialDate = creatingDate ?: viewModel.today,
+            onDismiss = { editingEvent = null; creatingDate = null },
+        )
     }
 
     if (showStartPicker) {

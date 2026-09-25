@@ -44,6 +44,7 @@ class CalendarRepository(private val context: Context) : EventSource {
                 CalendarContract.Calendars.ACCOUNT_NAME,
                 CalendarContract.Calendars.CALENDAR_COLOR,
                 CalendarContract.Calendars.VISIBLE,
+                CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL,
             )
             val result = mutableListOf<CalendarInfo>()
             resolver.query(CalendarContract.Calendars.CONTENT_URI, projection, null, null, null)?.use { cursor ->
@@ -52,6 +53,7 @@ class CalendarRepository(private val context: Context) : EventSource {
                 val accountIdx = cursor.getColumnIndexOrThrow(CalendarContract.Calendars.ACCOUNT_NAME)
                 val colorIdx = cursor.getColumnIndexOrThrow(CalendarContract.Calendars.CALENDAR_COLOR)
                 val visibleIdx = cursor.getColumnIndexOrThrow(CalendarContract.Calendars.VISIBLE)
+                val accessLevelIdx = cursor.getColumnIndexOrThrow(CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL)
                 while (cursor.moveToNext()) {
                     result += CalendarInfo(
                         id = cursor.getLong(idIdx),
@@ -59,6 +61,7 @@ class CalendarRepository(private val context: Context) : EventSource {
                         accountName = cursor.getString(accountIdx).orEmpty(),
                         color = cursor.getInt(colorIdx),
                         visible = cursor.getInt(visibleIdx) != 0,
+                        isWritable = cursor.getInt(accessLevelIdx) >= CalendarContract.Calendars.CAL_ACCESS_CONTRIBUTOR,
                     )
                 }
             }
@@ -89,6 +92,7 @@ class CalendarRepository(private val context: Context) : EventSource {
                 CalendarContract.Instances.ALL_DAY,
                 CalendarContract.Instances.CALENDAR_COLOR,
                 CalendarContract.Instances.EVENT_LOCATION,
+                CalendarContract.Instances.DESCRIPTION,
             )
             val uri = CalendarContract.Instances.CONTENT_URI.buildUpon().apply {
                 ContentUris.appendId(this, startMillis)
@@ -112,6 +116,7 @@ class CalendarRepository(private val context: Context) : EventSource {
                 val allDayIdx = cursor.getColumnIndexOrThrow(CalendarContract.Instances.ALL_DAY)
                 val calendarColorIdx = cursor.getColumnIndexOrThrow(CalendarContract.Instances.CALENDAR_COLOR)
                 val locationIdx = cursor.getColumnIndexOrThrow(CalendarContract.Instances.EVENT_LOCATION)
+                val descriptionIdx = cursor.getColumnIndexOrThrow(CalendarContract.Instances.DESCRIPTION)
                 while (cursor.moveToNext()) {
                     result += EventItem(
                         id = cursor.getLong(eventIdIdx),
@@ -122,6 +127,7 @@ class CalendarRepository(private val context: Context) : EventSource {
                         allDay = cursor.getInt(allDayIdx) != 0,
                         color = cursor.getInt(calendarColorIdx),
                         location = cursor.getString(locationIdx).orEmpty(),
+                        description = cursor.getString(descriptionIdx).orEmpty(),
                     )
                 }
             }
@@ -138,6 +144,9 @@ class CalendarRepository(private val context: Context) : EventSource {
         startMillis: Long,
         endMillis: Long,
         allDay: Boolean = false,
+        location: String = "",
+        description: String = "",
+        reminderMinutes: List<Int> = emptyList(),
         timeZoneId: String = TimeZone.getDefault().id,
     ): Long = withContext(Dispatchers.IO) {
         if (!hasCalendarWritePermission(context)) {
@@ -152,11 +161,15 @@ class CalendarRepository(private val context: Context) : EventSource {
                 put(CalendarContract.Events.DTEND, endMillis)
                 put(CalendarContract.Events.ALL_DAY, if (allDay) 1 else 0)
                 put(CalendarContract.Events.EVENT_TIMEZONE, timeZoneId)
+                put(CalendarContract.Events.EVENT_LOCATION, location)
+                put(CalendarContract.Events.DESCRIPTION, description)
+                if (reminderMinutes.isNotEmpty()) put(CalendarContract.Events.HAS_ALARM, 1)
             }
             val id = resolver.insert(CalendarContract.Events.CONTENT_URI, values)?.lastPathSegment?.toLongOrNull() ?: -1L
             // "RunCal이 만든 일정"이라는 출처 표시 — 백업이 이 표시로 로컬 일정만 골라 다시 읽는다.
             if (id > 0) {
                 provenanceDao.insert(LocalEventProvenanceEntity(id, calendarId, System.currentTimeMillis()))
+                replaceReminders(id, reminderMinutes)
             }
             id
         } catch (e: SecurityException) {
@@ -182,6 +195,7 @@ class CalendarRepository(private val context: Context) : EventSource {
                 CalendarContract.Events.ALL_DAY,
                 CalendarContract.Events.CALENDAR_COLOR,
                 CalendarContract.Events.EVENT_LOCATION,
+                CalendarContract.Events.DESCRIPTION,
             )
             resolver.query(uri, projection, null, null, null)?.use { cursor ->
                 if (!cursor.moveToFirst()) return@withContext null
@@ -198,6 +212,7 @@ class CalendarRepository(private val context: Context) : EventSource {
                     allDay = cursor.getInt(cursor.getColumnIndexOrThrow(CalendarContract.Events.ALL_DAY)) != 0,
                     color = cursor.getInt(cursor.getColumnIndexOrThrow(CalendarContract.Events.CALENDAR_COLOR)),
                     location = cursor.getString(cursor.getColumnIndexOrThrow(CalendarContract.Events.EVENT_LOCATION)).orEmpty(),
+                    description = cursor.getString(cursor.getColumnIndexOrThrow(CalendarContract.Events.DESCRIPTION)).orEmpty(),
                 )
             }
             null
@@ -212,6 +227,11 @@ class CalendarRepository(private val context: Context) : EventSource {
         title: String? = null,
         startMillis: Long? = null,
         endMillis: Long? = null,
+        allDay: Boolean? = null,
+        location: String? = null,
+        description: String? = null,
+        // null = 알림을 건드리지 않음. 빈 리스트를 포함해 non-null이면 전체를 이 값으로 교체한다.
+        reminderMinutes: List<Int>? = null,
     ): Int = withContext(Dispatchers.IO) {
         if (!hasCalendarWritePermission(context)) {
             Log.e(TAG, "updateEvent: WRITE_CALENDAR permission not granted")
@@ -222,13 +242,53 @@ class CalendarRepository(private val context: Context) : EventSource {
                 title?.let { put(CalendarContract.Events.TITLE, it) }
                 startMillis?.let { put(CalendarContract.Events.DTSTART, it) }
                 endMillis?.let { put(CalendarContract.Events.DTEND, it) }
+                allDay?.let { put(CalendarContract.Events.ALL_DAY, if (it) 1 else 0) }
+                location?.let { put(CalendarContract.Events.EVENT_LOCATION, it) }
+                description?.let { put(CalendarContract.Events.DESCRIPTION, it) }
+                reminderMinutes?.let { put(CalendarContract.Events.HAS_ALARM, if (it.isNotEmpty()) 1 else 0) }
             }
-            if (values.size() == 0) return@withContext 0
-            val uri = ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId)
-            resolver.update(uri, values, null, null)
+            val updated = if (values.size() == 0) {
+                1 // 필드는 안 바뀌고 알림만 바뀌는 경우도 있어, 0으로 취급해 호출부가 실패로 오인하지 않게 한다.
+            } else {
+                val uri = ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId)
+                resolver.update(uri, values, null, null)
+            }
+            if (reminderMinutes != null) replaceReminders(eventId, reminderMinutes)
+            updated
         } catch (e: SecurityException) {
             Log.e(TAG, "updateEvent failed", e)
             0
+        }
+    }
+
+    /** 알림은 최대 5개까지만 저장한다(발송 자체는 P4). 전체 삭제 후 다시 넣는 방식이라 항상 요청한 목록과 정확히 일치한다. */
+    private fun replaceReminders(eventId: Long, minutes: List<Int>) {
+        resolver.delete(CalendarContract.Reminders.CONTENT_URI, "${CalendarContract.Reminders.EVENT_ID} = ?", arrayOf(eventId.toString()))
+        minutes.take(MAX_REMINDERS).forEach { minute ->
+            val values = ContentValues().apply {
+                put(CalendarContract.Reminders.EVENT_ID, eventId)
+                put(CalendarContract.Reminders.MINUTES, minute)
+                put(CalendarContract.Reminders.METHOD, CalendarContract.Reminders.METHOD_ALERT)
+            }
+            resolver.insert(CalendarContract.Reminders.CONTENT_URI, values)
+        }
+    }
+
+    /** [eventId]에 걸린 알림들을 "몇 분 전"인지로 반환한다 — 편집 화면이 기존 값을 불러올 때 쓴다. */
+    suspend fun getReminders(eventId: Long): List<Int> = withContext(Dispatchers.IO) {
+        if (!hasCalendarReadPermission(context)) return@withContext emptyList()
+        try {
+            val projection = arrayOf(CalendarContract.Reminders.MINUTES)
+            val selection = "${CalendarContract.Reminders.EVENT_ID} = ?"
+            val result = mutableListOf<Int>()
+            resolver.query(CalendarContract.Reminders.CONTENT_URI, projection, selection, arrayOf(eventId.toString()), null)?.use { cursor ->
+                val minutesIdx = cursor.getColumnIndexOrThrow(CalendarContract.Reminders.MINUTES)
+                while (cursor.moveToNext()) result += cursor.getInt(minutesIdx)
+            }
+            result
+        } catch (e: SecurityException) {
+            Log.e(TAG, "getReminders failed", e)
+            emptyList()
         }
     }
 
@@ -335,5 +395,6 @@ class CalendarRepository(private val context: Context) : EventSource {
         const val LOCAL_ACCOUNT_NAME = "RunCal Local"
         const val LOCAL_CALENDAR_NAME = "RunCal 테스트"
         const val DEFAULT_CALENDAR_COLOR = 0xFF6650A4.toInt()
+        const val MAX_REMINDERS = 5
     }
 }
