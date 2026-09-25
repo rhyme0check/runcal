@@ -18,6 +18,10 @@ const val MAX_APP_FONT_SCALE_STEP = 4
 const val DEFAULT_APP_FONT_SCALE_STEP = 2
 val DEFAULT_WEEK_START_DAY: DayOfWeek = DayOfWeek.SUNDAY
 
+/** Notion 동기화 주기로 고를 수 있는 값들(시간 단위). 선택 UI는 3단계에서 붙인다. */
+val NOTION_SYNC_INTERVAL_HOUR_OPTIONS = listOf(1, 3, 6, 12)
+const val DEFAULT_NOTION_SYNC_INTERVAL_HOURS = 3
+
 /**
  * 앱 화면 전용 표시 설정.
  * [visibleCalendarIds]가 null이면 전체 캘린더 표시(기본값)를 의미한다. 위젯별 설정과는 완전히 독립된 저장소를 쓴다.
@@ -28,6 +32,7 @@ data class AppSettings(
     val fontScaleStep: Int = DEFAULT_APP_FONT_SCALE_STEP,
     val presets: List<AppPreset> = listOf(DEFAULT_APP_PRESET),
     val activePresetId: String = DEFAULT_APP_PRESET_ID,
+    val notionSyncIntervalHours: Int = DEFAULT_NOTION_SYNC_INTERVAL_HOURS,
 )
 
 class AppSettingsRepository(private val context: Context) {
@@ -38,6 +43,7 @@ class AppSettingsRepository(private val context: Context) {
         val FONT_SCALE_STEP = intPreferencesKey("app_font_scale_step")
         val PRESETS = stringPreferencesKey("app_presets")
         val ACTIVE_PRESET_ID = stringPreferencesKey("active_app_preset_id")
+        val NOTION_SYNC_INTERVAL_HOURS = intPreferencesKey("notion_sync_interval_hours")
     }
 
     val settings: Flow<AppSettings> = context.appSettingsDataStore.data.map { prefs ->
@@ -51,6 +57,7 @@ class AppSettingsRepository(private val context: Context) {
                 runCatching { Json.decodeFromString(appPresetListSerializer, json) }.getOrNull()
             }?.takeIf { it.isNotEmpty() } ?: listOf(DEFAULT_APP_PRESET),
             activePresetId = prefs[Keys.ACTIVE_PRESET_ID] ?: DEFAULT_APP_PRESET_ID,
+            notionSyncIntervalHours = prefs[Keys.NOTION_SYNC_INTERVAL_HOURS] ?: DEFAULT_NOTION_SYNC_INTERVAL_HOURS,
         )
     }
 
@@ -80,5 +87,10 @@ class AppSettingsRepository(private val context: Context) {
 
     suspend fun setActivePresetId(id: String) {
         context.appSettingsDataStore.edit { prefs -> prefs[Keys.ACTIVE_PRESET_ID] = id }
+    }
+
+    /** 저장만 한다 — 실제로 WorkManager 주기를 바꾸는 건 호출부(3단계 설정 UI)의 몫이다. */
+    suspend fun setNotionSyncIntervalHours(hours: Int) {
+        context.appSettingsDataStore.edit { prefs -> prefs[Keys.NOTION_SYNC_INTERVAL_HOURS] = hours }
     }
 }

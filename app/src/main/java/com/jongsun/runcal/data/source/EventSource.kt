@@ -12,9 +12,16 @@ sealed interface SourceRef {
 }
 
 /**
- * 프리셋 등에서 "어떤 소스를 볼지"를 나타낸다.
+ * [EventRepository]/[EventSource]에 실제로 넘기는 조회 조건.
  * 각 필드는 null=해당 종류 전체, 빈 집합=해당 종류 없음, 비어있지 않은 집합=그 안의 것만 —
- * 기존 [com.jongsun.runcal.widget.WidgetPreset.calendarIds]의 null/empty 관례를 그대로 확장한다.
+ * [com.jongsun.runcal.widget.WidgetPreset.calendarIds]의 null/empty 관례와 동일하다.
+ *
+ * 주의: [com.jongsun.runcal.widget.WidgetPreset.notionDatabaseIds]/
+ * [com.jongsun.runcal.data.AppPreset.notionDatabaseIds]는 "null=Notion 없음"(opt-in, 기존
+ * 프리셋 보호를 위해 calendarIds와 의도적으로 비대칭)이라, 프리셋을 이 클래스로 변환할 때
+ * `notionDbIds = preset.notionDatabaseIds`처럼 그대로 넘기면 안 된다 — 프리셋의 null을
+ * emptySet()으로 바꿔서 넘겨야 한다. (Phase 3에서 CalendarViewModel/RunCalWidgetRenderer가
+ * 프리셋→SourceSelection 변환을 담당할 때 반드시 지킬 것.)
  */
 data class SourceSelection(
     val calendarIds: Set<Long>?,
