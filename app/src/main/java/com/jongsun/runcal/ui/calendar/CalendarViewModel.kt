@@ -182,6 +182,28 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
         return eventRepository.getEvents(startMillis, endMillis, selection)
     }
 
+    /**
+     * 캘린더만 순수하게 조회한다(Notion 섞지 않음) — 주간표 내보내기의 "캘린더" 소스 전용.
+     * 표시할 캘린더 필터(visibleCalendarIds)는 그대로 적용한다.
+     */
+    suspend fun calendarEventsInRange(startMillis: Long, endMillis: Long): List<EventItem> {
+        val calendarIds = _visibleCalendarIds.value
+        return if (calendarIds != null && calendarIds.isEmpty()) {
+            emptyList()
+        } else {
+            repository.getEvents(startMillis, endMillis, calendarIds?.toList())
+        }
+    }
+
+    /**
+     * 특정 Notion DB의 캐시(Room)만 읽는다 — 네트워크 조회 없음. 주간표 내보내기의 Notion 소스 전용.
+     */
+    suspend fun notionEventsInRangeForExport(
+        registrationId: String,
+        startMillis: Long,
+        endMillis: Long,
+    ) = db.notionEventDao().getEventsInRange(listOf(registrationId), startMillis, endMillis)
+
     /** [date]가 속한 달의 캐시에서 해당 날짜에 걸친 이벤트만 걸러낸다. */
     fun eventsForDate(cache: Map<YearMonth, List<EventItem>>, date: LocalDate): List<EventItem> =
         cache[YearMonth.from(date)].orEmpty().filter { it.occursOn(date, zone) }
@@ -229,6 +251,16 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
     suspend fun registerNotionDatabase(entity: NotionDatabaseEntity): NotionSyncResult {
         db.notionDatabaseDao().upsert(entity)
         val result = notionSyncJob.syncOne(entity)
+        refreshNotionDatabases()
+        invalidateCache()
+        ensureMonthLoaded(_visibleYearMonth.value, force = true)
+        RunCalWidgetRenderer.updateAllWidgets(getApplication())
+        return result
+    }
+
+    /** 특정 DB 하나만 즉시 재동기화한다(등록 정보는 이미 존재, 재등록 없이 동기화만). */
+    suspend fun syncNotionDatabase(registration: NotionDatabaseEntity): NotionSyncResult {
+        val result = notionSyncJob.syncOne(registration)
         refreshNotionDatabases()
         invalidateCache()
         ensureMonthLoaded(_visibleYearMonth.value, force = true)

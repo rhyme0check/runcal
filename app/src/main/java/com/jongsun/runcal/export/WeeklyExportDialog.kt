@@ -1,10 +1,8 @@
 package com.jongsun.runcal.export
 
 import android.content.Intent
-import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -49,12 +47,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jongsun.runcal.data.room.NotionDatabaseEntity
 import com.jongsun.runcal.data.weekRange
 import com.jongsun.runcal.ui.calendar.CalendarViewModel
+import java.text.SimpleDateFormat
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZoneOffset
+import java.util.Date
+import java.util.Locale
 import kotlinx.coroutines.launch
 
 @Composable
@@ -66,15 +68,22 @@ fun WeeklyExportDialog(viewModel: CalendarViewModel, onDismiss: () -> Unit) {
     }
 }
 
+/** null = 캘린더 소스, non-null = 그 Notion DB가 소스. */
+private typealias ExportSource = NotionDatabaseEntity?
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun WeeklyExportContent(viewModel: CalendarViewModel, onDismiss: () -> Unit) {
     val weekStartDay by viewModel.weekStartDay.collectAsStateWithLifecycle()
+    val calendars by viewModel.calendars.collectAsStateWithLifecycle()
+    val notionDatabases by viewModel.notionDatabases.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
     val zone = remember { ZoneId.systemDefault() }
+    val calendarNameById = remember(calendars) { calendars.associate { it.id to it.displayName } }
 
+    var source by remember { mutableStateOf<ExportSource>(null) }
     var rangeType by remember { mutableStateOf(ExportRangeType.THIS_WEEK) }
     var customStart by remember { mutableStateOf(LocalDate.now()) }
     var customEnd by remember { mutableStateOf(LocalDate.now().plusDays(6)) }
@@ -84,6 +93,16 @@ private fun WeeklyExportContent(viewModel: CalendarViewModel, onDismiss: () -> U
     var previewText by remember { mutableStateOf("") }
     var rowCount by remember { mutableStateOf(0) }
     var copiedMessage by remember { mutableStateOf(false) }
+    var syncing by remember { mutableStateOf(false) }
+    var refreshTick by remember { mutableStateOf(0) }
+
+    // source가 사라진 DB를 계속 가리키지 않도록(예: 다른 화면에서 삭제됨) 목록과 동기화
+    LaunchedEffect(notionDatabases) {
+        val current = source
+        if (current != null && notionDatabases.none { it.id == current.id }) {
+            source = null
+        }
+    }
 
     val (rangeStart, rangeEndExclusive) = remember(rangeType, customStart, customEnd, weekStartDay) {
         when (rangeType) {
@@ -93,14 +112,20 @@ private fun WeeklyExportContent(viewModel: CalendarViewModel, onDismiss: () -> U
         }
     }
 
-    LaunchedEffect(rangeStart, rangeEndExclusive, format) {
+    LaunchedEffect(rangeStart, rangeEndExclusive, format, source, refreshTick) {
         val startMillis = rangeStart.atStartOfDay(zone).toInstant().toEpochMilli()
         val endMillis = rangeEndExclusive.atStartOfDay(zone).toInstant().toEpochMilli()
-        val rows = buildExportRows(viewModel.eventsInRange(startMillis, endMillis), zone)
-        rowCount = rows.size
+        val activeSource = source
+        val table = if (activeSource == null) {
+            buildCalendarExportTable(viewModel.calendarEventsInRange(startMillis, endMillis), calendarNameById, zone)
+        } else {
+            val rows = viewModel.notionEventsInRangeForExport(activeSource.id, startMillis, endMillis)
+            buildNotionExportTable(rows, activeSource, zone)
+        }
+        rowCount = table.rows.size
         previewText = when (format) {
-            ExportFormat.MARKDOWN -> renderMarkdownTable(rows)
-            ExportFormat.CSV -> renderCsv(rows)
+            ExportFormat.MARKDOWN -> renderMarkdownTable(table)
+            ExportFormat.CSV -> renderCsv(table)
         }
         copiedMessage = false
     }
@@ -116,6 +141,48 @@ private fun WeeklyExportContent(viewModel: CalendarViewModel, onDismiss: () -> U
         }
 
         Column(modifier = Modifier.weight(1f).padding(horizontal = 16.dp).verticalScroll(rememberScrollState())) {
+            Text(text = "소스", style = MaterialTheme.typography.titleMedium)
+            Row(
+                modifier = Modifier.padding(vertical = 8.dp).horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                FilterChip(selected = source == null, onClick = { source = null }, label = { Text("캘린더") })
+                notionDatabases.forEach { database ->
+                    FilterChip(
+                        selected = source?.id == database.id,
+                        onClick = { source = database },
+                        label = { Text(database.displayName) },
+                    )
+                }
+            }
+
+            source?.let { database ->
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "마지막 동기화: ${lastSyncedLabel(database.lastSyncedAtMillis)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    TextButton(
+                        enabled = !syncing,
+                        onClick = {
+                            scope.launch {
+                                syncing = true
+                                viewModel.syncNotionDatabase(database)
+                                syncing = false
+                                refreshTick++
+                            }
+                        },
+                    ) { Text(if (syncing) "동기화 중..." else "지금 동기화") }
+                }
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
             Text(text = "범위", style = MaterialTheme.typography.titleMedium)
             Row(modifier = Modifier.padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(
@@ -242,6 +309,12 @@ private fun WeeklyExportContent(viewModel: CalendarViewModel, onDismiss: () -> U
             },
         )
     }
+}
+
+private fun lastSyncedLabel(atMillis: Long): String {
+    if (atMillis <= 0L) return "동기화 전"
+    val formatter = SimpleDateFormat("HH:mm", Locale.KOREA)
+    return formatter.format(Date(atMillis))
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
