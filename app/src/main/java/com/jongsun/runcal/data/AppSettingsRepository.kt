@@ -3,6 +3,7 @@ package com.jongsun.runcal.data
 import android.content.Context
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -36,6 +37,14 @@ data class AppSettings(
     val presets: List<AppPreset> = listOf(DEFAULT_APP_PRESET),
     val activePresetId: String = DEFAULT_APP_PRESET_ID,
     val notionSyncIntervalHours: Int = DEFAULT_NOTION_SYNC_INTERVAL_HOURS,
+    // null = Drive 미연결. 액세스 토큰 자체는 여기 저장하지 않는다(Play services가 캐시) —
+    // 표시용 계정 라벨과, 재인증이 필요할 때 보여줄 마지막 오류만 들고 있는다.
+    val driveAccountEmail: String? = null,
+    val driveLastError: String? = null,
+    // null = 성공한 Drive 백업이 한 번도 없음. Testing 상태 OAuth 동의 화면은 리프레시 토큰이
+    // 7일 뒤 만료되므로, 월간(30일) 백업이 조용히 계속 건너뛰어져도 사용자가 알아챌 수 있게
+    // 마지막 성공 시각을 별도로 남긴다(driveLastError만으로는 "성공한 적이 언제인지" 알 수 없음).
+    val driveLastSuccessAtMillis: Long? = null,
 )
 
 class AppSettingsRepository(private val context: Context) {
@@ -48,6 +57,9 @@ class AppSettingsRepository(private val context: Context) {
         val ACTIVE_PRESET_ID = stringPreferencesKey("active_app_preset_id")
         val NOTION_SYNC_INTERVAL_HOURS = intPreferencesKey("notion_sync_interval_hours")
         val VISIBLE_NOTION_DATABASE_IDS = stringSetPreferencesKey("visible_notion_database_ids")
+        val DRIVE_ACCOUNT_EMAIL = stringPreferencesKey("drive_account_email")
+        val DRIVE_LAST_ERROR = stringPreferencesKey("drive_last_error")
+        val DRIVE_LAST_SUCCESS_AT_MILLIS = longPreferencesKey("drive_last_success_at_millis")
     }
 
     val settings: Flow<AppSettings> = context.appSettingsDataStore.data.map { prefs ->
@@ -63,6 +75,9 @@ class AppSettingsRepository(private val context: Context) {
             }?.takeIf { it.isNotEmpty() } ?: listOf(DEFAULT_APP_PRESET),
             activePresetId = prefs[Keys.ACTIVE_PRESET_ID] ?: DEFAULT_APP_PRESET_ID,
             notionSyncIntervalHours = prefs[Keys.NOTION_SYNC_INTERVAL_HOURS] ?: DEFAULT_NOTION_SYNC_INTERVAL_HOURS,
+            driveAccountEmail = prefs[Keys.DRIVE_ACCOUNT_EMAIL],
+            driveLastError = prefs[Keys.DRIVE_LAST_ERROR],
+            driveLastSuccessAtMillis = prefs[Keys.DRIVE_LAST_SUCCESS_AT_MILLIS],
         )
     }
 
@@ -101,5 +116,21 @@ class AppSettingsRepository(private val context: Context) {
     /** 저장만 한다 — 실제로 WorkManager 주기를 바꾸는 건 호출부(3단계 설정 UI)의 몫이다. */
     suspend fun setNotionSyncIntervalHours(hours: Int) {
         context.appSettingsDataStore.edit { prefs -> prefs[Keys.NOTION_SYNC_INTERVAL_HOURS] = hours }
+    }
+
+    suspend fun setDriveAccountEmail(email: String?) {
+        context.appSettingsDataStore.edit { prefs ->
+            if (email == null) prefs.remove(Keys.DRIVE_ACCOUNT_EMAIL) else prefs[Keys.DRIVE_ACCOUNT_EMAIL] = email
+        }
+    }
+
+    suspend fun setDriveLastError(message: String?) {
+        context.appSettingsDataStore.edit { prefs ->
+            if (message == null) prefs.remove(Keys.DRIVE_LAST_ERROR) else prefs[Keys.DRIVE_LAST_ERROR] = message
+        }
+    }
+
+    suspend fun setDriveLastSuccessAtMillis(atMillis: Long) {
+        context.appSettingsDataStore.edit { prefs -> prefs[Keys.DRIVE_LAST_SUCCESS_AT_MILLIS] = atMillis }
     }
 }

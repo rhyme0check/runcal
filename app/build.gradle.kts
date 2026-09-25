@@ -33,6 +33,14 @@ android {
             "NOTION_API_TOKEN",
             "\"${localProperties.getProperty("NOTION_API_TOKEN", "")}\"",
         )
+        // Google Cloud Console에서 만든 "Web application" 타입 OAuth 클라이언트 ID.
+        // Credential Manager의 GetSignInWithGoogleOption(serverClientId=...)에 필요하다 —
+        // Android 클라이언트 ID가 아니라 반드시 Web 클라이언트 ID를 써야 한다.
+        buildConfigField(
+            "String",
+            "DRIVE_WEB_CLIENT_ID",
+            "\"${localProperties.getProperty("DRIVE_WEB_CLIENT_ID", "")}\"",
+        )
     }
 
     buildTypes {
@@ -76,6 +84,10 @@ dependencies {
     ksp(libs.androidx.room.compiler)
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.squareup.okhttp)
+    implementation(libs.play.services.auth)
+    implementation(libs.androidx.credentials)
+    implementation(libs.androidx.credentials.play.services.auth)
+    implementation(libs.google.id)
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)

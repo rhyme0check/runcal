@@ -15,7 +15,7 @@ const val CURRENT_BACKUP_FORMAT_VERSION = 1
 val backupJson = Json { ignoreUnknownKeys = true }
 
 @Serializable
-enum class BackupType { DAILY, MANUAL }
+enum class BackupType { DAILY, MANUAL, MONTHLY }
 
 /**
  * 앱 화면 전용 표시 설정 스냅샷. [AppSettings]를 그대로 재사용하지 않고 별도 DTO로 두는 이유는
