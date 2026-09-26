@@ -50,6 +50,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jongsun.runcal.data.EventItem
 import com.jongsun.runcal.data.dateRange
@@ -57,6 +58,8 @@ import com.jongsun.runcal.data.isBarWorthy
 import com.jongsun.runcal.data.occursOn
 import com.jongsun.runcal.data.resolveEventColor
 import com.jongsun.runcal.data.room.EventColorStyleEntity
+import com.jongsun.runcal.data.special.SpecialDayFlags
+import com.jongsun.runcal.data.special.SpecialDaySnapshot
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.YearMonth
@@ -68,6 +71,8 @@ fun MonthlyScreen(viewModel: CalendarViewModel, modifier: Modifier = Modifier) {
     val weekStartDay by viewModel.weekStartDay.collectAsStateWithLifecycle()
     val monthCache by viewModel.monthCache.collectAsStateWithLifecycle()
     val colorStyles by viewModel.eventColorStyles.collectAsStateWithLifecycle()
+    val specialFlags by viewModel.specialFlags.collectAsStateWithLifecycle()
+    val specialSnapshot by viewModel.specialSnapshot.collectAsStateWithLifecycle()
     val isDarkTheme = isSystemInDarkTheme()
 
     val pagerState = rememberPagerState(
@@ -110,6 +115,8 @@ fun MonthlyScreen(viewModel: CalendarViewModel, modifier: Modifier = Modifier) {
                 selectedDate = selectedDate,
                 colorStyles = colorStyles,
                 isDarkTheme = isDarkTheme,
+                specialFlags = specialFlags,
+                specialSnapshot = specialSnapshot,
                 onDateClick = { date ->
                     viewModel.selectDate(date)
                     sheetDate = date
@@ -130,6 +137,7 @@ fun MonthlyScreen(viewModel: CalendarViewModel, modifier: Modifier = Modifier) {
                 events = remember(monthCache, date) { viewModel.eventsForDate(monthCache, date) },
                 colorStyles = colorStyles,
                 isDarkTheme = isDarkTheme,
+                specialLabel = specialSnapshot.describe(date, specialFlags),
                 modifier = Modifier.fillMaxWidth(),
                 onAddClick = { creatingDate = date },
                 onEventClick = { event -> editingEvent = event },
@@ -171,17 +179,24 @@ private fun MonthGrid(
     selectedDate: LocalDate,
     colorStyles: Map<String, EventColorStyleEntity>,
     isDarkTheme: Boolean,
+    specialFlags: SpecialDayFlags,
+    specialSnapshot: SpecialDaySnapshot,
     onDateClick: (LocalDate) -> Unit,
     onDateLongClick: (LocalDate) -> Unit,
 ) {
     val weeks = remember(yearMonth, weekStartDay) { buildMonthGridWeeks(yearMonth, weekStartDay) }
+    // 공휴일/절기 이름은 가짜 종일 일정으로 만들어 일정 막대와 같은 레인 패킹에 태운다(최상단 레인 우선).
+    val barEvents = remember(events, weeks, specialSnapshot, specialFlags) {
+        val (start, endExclusive) = monthGridDateRange(weeks)
+        events + specialSnapshot.specialEvents(start, endExclusive, specialFlags)
+    }
     Column(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState()),
     ) {
         weeks.forEach { week ->
-            val lanes = remember(week, events) { computeWeekBars(week, events) }
+            val lanes = remember(week, barEvents) { computeWeekBars(week, barEvents) }
             WeekRow(
                 week = week,
                 lanes = lanes,
@@ -190,6 +205,8 @@ private fun MonthGrid(
                 selectedDate = selectedDate,
                 colorStyles = colorStyles,
                 isDarkTheme = isDarkTheme,
+                specialFlags = specialFlags,
+                specialSnapshot = specialSnapshot,
                 onDateClick = onDateClick,
                 onDateLongClick = onDateLongClick,
             )
@@ -206,6 +223,8 @@ private fun WeekRow(
     selectedDate: LocalDate,
     colorStyles: Map<String, EventColorStyleEntity>,
     isDarkTheme: Boolean,
+    specialFlags: SpecialDayFlags,
+    specialSnapshot: SpecialDaySnapshot,
     onDateClick: (LocalDate) -> Unit,
     onDateLongClick: (LocalDate) -> Unit,
 ) {
@@ -216,6 +235,8 @@ private fun WeekRow(
                     day = day,
                     isToday = day.date == today,
                     isSelected = day.date == selectedDate,
+                    isHoliday = specialFlags.showHolidays && specialSnapshot.isHoliday(day.date),
+                    lunarLabel = if (specialFlags.showLunar) specialSnapshot.lunarMarker(day.date) else null,
                     onClick = { onDateClick(day.date) },
                     onLongClick = { onDateLongClick(day.date) },
                     modifier = Modifier.weight(1f),
@@ -254,22 +275,27 @@ private fun DayNumberCell(
     day: MonthGridDay,
     isToday: Boolean,
     isSelected: Boolean,
+    isHoliday: Boolean,
+    lunarLabel: String?,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val textColor = when {
         isToday -> MaterialTheme.colorScheme.onPrimary
+        // 공휴일은 요일과 무관하게 일요일과 같은 빨강.
+        isHoliday -> dayOfWeekColor(DayOfWeek.SUNDAY, dimmed = !day.isCurrentMonth)
         else -> dayOfWeekColor(day.date.dayOfWeek, dimmed = !day.isCurrentMonth)
     }
+    // 삭·망·그믐 표식은 칸 우상단에 겹쳐 그린다 — 별도 행을 잡지 않아 칸 높이/막대 배치가 표식 유무와 무관하다.
     Box(
         modifier = modifier
             .padding(vertical = 4.dp)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick),
-        contentAlignment = Alignment.Center,
     ) {
         Box(
             modifier = Modifier
+                .align(Alignment.TopCenter)
                 .size(30.dp)
                 .clip(CircleShape)
                 .then(
@@ -285,6 +311,15 @@ private fun DayNumberCell(
                 text = day.date.dayOfMonth.toString(),
                 color = textColor,
                 style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+        if (lunarLabel != null) {
+            Text(
+                text = lunarLabel,
+                modifier = Modifier.align(Alignment.TopEnd),
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (day.isCurrentMonth) 1f else 0.5f),
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                maxLines = 1,
             )
         }
     }
@@ -355,6 +390,7 @@ private fun SelectedDateAgenda(
     events: List<EventItem>,
     colorStyles: Map<String, EventColorStyleEntity>,
     isDarkTheme: Boolean,
+    specialLabel: String? = null,
     modifier: Modifier = Modifier,
     onAddClick: () -> Unit = {},
     onEventClick: (EventItem) -> Unit = {},
@@ -371,6 +407,14 @@ private fun SelectedDateAgenda(
                 modifier = Modifier.padding(vertical = 8.dp),
             )
             IconButton(onClick = onAddClick) { Icon(Icons.Default.Add, contentDescription = "일정 추가") }
+        }
+        if (specialLabel != null) {
+            Text(
+                text = specialLabel,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
         }
         if (events.isEmpty()) {
             Text(text = "일정이 없습니다", style = MaterialTheme.typography.bodyMedium)

@@ -3,6 +3,7 @@ package com.jongsun.runcal.ui.calendar
 import com.jongsun.runcal.data.EventItem
 import com.jongsun.runcal.data.dateRange
 import com.jongsun.runcal.data.isBarWorthy
+import com.jongsun.runcal.data.special.isSpecialDay
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.YearMonth
@@ -86,20 +87,17 @@ fun computeWeekBars(
                 isTrueEnd = range.endInclusive == clampedEnd,
             )
         }
-        .sortedWith(compareBy({ it.startCol }, { it.startCol - it.endCol }))
+        // 공휴일/절기 이름 막대는 항상 먼저 배치해 최상단 레인을 차지한다.
+        .sortedWith(compareBy({ if (it.event.isSpecialDay()) 0 else 1 }, { it.startCol }, { it.startCol - it.endCol }))
 
-    val laneEnds = mutableListOf<Int>()
     val lanes = mutableListOf<MutableList<EventBar?>>()
 
     for (bar in candidates) {
-        var lane = laneEnds.indexOfFirst { it < bar.startCol }
+        var lane = lanes.indexOfFirst { l -> (bar.startCol..bar.endCol).all { l[it] == null } }
         if (lane == -1) {
             if (lanes.size >= MAX_BAR_LANES) continue // 표시 한도 초과 - 생략
-            laneEnds += bar.endCol
             lanes += MutableList(DAYS_IN_WEEK) { null }
             lane = lanes.lastIndex
-        } else {
-            laneEnds[lane] = bar.endCol
         }
         for (col in bar.startCol..bar.endCol) {
             lanes[lane][col] = bar

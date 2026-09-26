@@ -29,6 +29,10 @@ data class BackupAppSettings(
     val fontScaleStep: Int,
     val activePresetId: String,
     val notionSyncIntervalHours: Int,
+    // 음력/공휴일/절기 표시. null = 이 필드가 생기기 전의 구버전 백업 → 복원 시 현재 값을 그대로 둔다.
+    val showLunar: Boolean? = null,
+    val showHolidays: Boolean? = null,
+    val showSolarTerms: Boolean? = null,
 )
 
 /**
@@ -45,6 +49,8 @@ data class BackupWidgetInstance(
     val fontScaleStep: Int,
     val backgroundOpacity: Float,
     val showWeekNumber: Boolean,
+    // 위젯별 음력 표시(4x5 확장 위젯 전용). null = 구버전 백업 → 복원 시 현재 값 유지.
+    val showLunar: Boolean? = null,
 )
 
 /**

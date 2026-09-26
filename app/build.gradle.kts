@@ -33,6 +33,12 @@ android {
             "NOTION_API_TOKEN",
             "\"${localProperties.getProperty("NOTION_API_TOKEN", "")}\"",
         )
+        // 공공데이터포털(data.go.kr) 인증키 — 공휴일/24절기/음력 조회용. NOTION_API_TOKEN과 같은 방식.
+        buildConfigField(
+            "String",
+            "DATA_GO_KR_API_KEY",
+            "\"${localProperties.getProperty("DATA_GO_KR_API_KEY", "")}\"",
+        )
         // Google Cloud Console에서 만든 "Web application" 타입 OAuth 클라이언트 ID.
         // Credential Manager의 GetSignInWithGoogleOption(serverClientId=...)에 필요하다 —
         // Android 클라이언트 ID가 아니라 반드시 Web 클라이언트 ID를 써야 한다.

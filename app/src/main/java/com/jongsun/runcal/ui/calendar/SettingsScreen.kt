@@ -64,6 +64,7 @@ import com.jongsun.runcal.export.WeeklyExportDialog
 import com.jongsun.runcal.ui.backup.BackupSettingsSection
 import com.jongsun.runcal.ui.notification.ReminderSettingsSection
 import com.jongsun.runcal.ui.notion.NotionSettingsSection
+import com.jongsun.runcal.ui.special.SpecialDaySettingsSection
 import com.jongsun.runcal.widget.RunCalCalendarWidgetProvider
 import com.jongsun.runcal.widget.RunCalMonthlyCompactWidgetProvider
 import com.jongsun.runcal.widget.RunCalMonthlyStandardWidgetProvider
@@ -181,6 +182,11 @@ fun SettingsScreen(viewModel: CalendarViewModel, modifier: Modifier = Modifier) 
         item {
             HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
             ReminderSettingsSection(viewModel = viewModel)
+        }
+
+        item {
+            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+            SpecialDaySettingsSection(viewModel = viewModel)
         }
 
         item {

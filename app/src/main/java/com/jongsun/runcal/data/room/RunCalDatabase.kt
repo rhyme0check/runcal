@@ -37,6 +37,25 @@ private val MIGRATION_3_4 = object : Migration(3, 4) {
     }
 }
 
+private val MIGRATION_4_5 = object : Migration(4, 5) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS special_days (" +
+                "epochDay INTEGER NOT NULL, kind INTEGER NOT NULL, name TEXT NOT NULL, " +
+                "isHoliday INTEGER NOT NULL, PRIMARY KEY(epochDay, kind, name))",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS lunar_days (" +
+                "epochDay INTEGER NOT NULL PRIMARY KEY, lunarMonth INTEGER NOT NULL, " +
+                "lunarDay INTEGER NOT NULL, isLeap INTEGER NOT NULL)",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS special_fetch_status (" +
+                "`key` TEXT NOT NULL PRIMARY KEY, fetchedAtMillis INTEGER NOT NULL)",
+        )
+    }
+}
+
 @Database(
     entities = [
         NotionDatabaseEntity::class,
@@ -44,8 +63,11 @@ private val MIGRATION_3_4 = object : Migration(3, 4) {
         EventColorStyleEntity::class,
         LocalEventProvenanceEntity::class,
         ScheduledReminderEntity::class,
+        SpecialDayEntity::class,
+        LunarDayEntity::class,
+        SpecialFetchStatusEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 abstract class RunCalDatabase : RoomDatabase() {
@@ -54,6 +76,7 @@ abstract class RunCalDatabase : RoomDatabase() {
     abstract fun eventColorStyleDao(): EventColorStyleDao
     abstract fun localEventProvenanceDao(): LocalEventProvenanceDao
     abstract fun scheduledReminderDao(): ScheduledReminderDao
+    abstract fun specialDayDao(): SpecialDayDao
 
     companion object {
         @Volatile private var instance: RunCalDatabase? = null
@@ -64,7 +87,7 @@ abstract class RunCalDatabase : RoomDatabase() {
                     context.applicationContext,
                     RunCalDatabase::class.java,
                     "runcal_database",
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4).build().also { instance = it }
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5).build().also { instance = it }
             }
     }
 }

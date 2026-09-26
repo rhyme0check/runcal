@@ -1,0 +1,413 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 5,
+    "identityHash": "8b47c2465d345bf8903d462f185154d0",
+    "entities": [
+      {
+        "tableName": "notion_databases",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `notionDatabaseId` TEXT NOT NULL, `displayName` TEXT NOT NULL, `colorArgb` INTEGER NOT NULL, `iconEmojiOrUrl` TEXT, `dateProperty` TEXT NOT NULL, `titleProperty` TEXT NOT NULL, `subtitleProperty` TEXT, `statusProperty` TEXT, `schemaJson` TEXT NOT NULL, `lastSchemaCheckedAtMillis` INTEGER NOT NULL, `lastSyncedAtMillis` INTEGER NOT NULL, `lastSyncStatus` TEXT NOT NULL, `lastSyncError` TEXT, `createdAtMillis` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "notionDatabaseId",
+            "columnName": "notionDatabaseId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "displayName",
+            "columnName": "displayName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "colorArgb",
+            "columnName": "colorArgb",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "iconEmojiOrUrl",
+            "columnName": "iconEmojiOrUrl",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "dateProperty",
+            "columnName": "dateProperty",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "titleProperty",
+            "columnName": "titleProperty",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "subtitleProperty",
+            "columnName": "subtitleProperty",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "statusProperty",
+            "columnName": "statusProperty",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "schemaJson",
+            "columnName": "schemaJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastSchemaCheckedAtMillis",
+            "columnName": "lastSchemaCheckedAtMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastSyncedAtMillis",
+            "columnName": "lastSyncedAtMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastSyncStatus",
+            "columnName": "lastSyncStatus",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastSyncError",
+            "columnName": "lastSyncError",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "createdAtMillis",
+            "columnName": "createdAtMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "notion_events",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`registrationId` TEXT NOT NULL, `notionPageId` TEXT NOT NULL, `title` TEXT NOT NULL, `subtitle` TEXT, `statusRaw` TEXT, `startMillis` INTEGER NOT NULL, `endMillis` INTEGER NOT NULL, `allDay` INTEGER NOT NULL, `notionUrl` TEXT NOT NULL, `lastEditedTimeIso` TEXT NOT NULL, `fetchedAtMillis` INTEGER NOT NULL, PRIMARY KEY(`registrationId`, `notionPageId`), FOREIGN KEY(`registrationId`) REFERENCES `notion_databases`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "registrationId",
+            "columnName": "registrationId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "notionPageId",
+            "columnName": "notionPageId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "subtitle",
+            "columnName": "subtitle",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "statusRaw",
+            "columnName": "statusRaw",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "startMillis",
+            "columnName": "startMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "endMillis",
+            "columnName": "endMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "allDay",
+            "columnName": "allDay",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "notionUrl",
+            "columnName": "notionUrl",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastEditedTimeIso",
+            "columnName": "lastEditedTimeIso",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fetchedAtMillis",
+            "columnName": "fetchedAtMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "registrationId",
+            "notionPageId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_notion_events_registrationId_startMillis_endMillis",
+            "unique": false,
+            "columnNames": [
+              "registrationId",
+              "startMillis",
+              "endMillis"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_notion_events_registrationId_startMillis_endMillis` ON `${TABLE_NAME}` (`registrationId`, `startMillis`, `endMillis`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "notion_databases",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "registrationId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "event_color_styles",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`sourceKey` TEXT NOT NULL, `paletteKey` TEXT, `bold` INTEGER NOT NULL, PRIMARY KEY(`sourceKey`))",
+        "fields": [
+          {
+            "fieldPath": "sourceKey",
+            "columnName": "sourceKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "paletteKey",
+            "columnName": "paletteKey",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "bold",
+            "columnName": "bold",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "sourceKey"
+          ]
+        }
+      },
+      {
+        "tableName": "local_event_provenance",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`calendarEventId` INTEGER NOT NULL, `calendarId` INTEGER NOT NULL, `createdAtMillis` INTEGER NOT NULL, PRIMARY KEY(`calendarEventId`))",
+        "fields": [
+          {
+            "fieldPath": "calendarEventId",
+            "columnName": "calendarEventId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "calendarId",
+            "columnName": "calendarId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAtMillis",
+            "columnName": "createdAtMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "calendarEventId"
+          ]
+        }
+      },
+      {
+        "tableName": "scheduled_reminders",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`key` TEXT NOT NULL, `eventId` INTEGER NOT NULL, `occurrenceBeginMillis` INTEGER NOT NULL, `reminderMinutes` INTEGER NOT NULL, `triggerAtMillis` INTEGER NOT NULL, PRIMARY KEY(`key`))",
+        "fields": [
+          {
+            "fieldPath": "key",
+            "columnName": "key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "eventId",
+            "columnName": "eventId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "occurrenceBeginMillis",
+            "columnName": "occurrenceBeginMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "reminderMinutes",
+            "columnName": "reminderMinutes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "triggerAtMillis",
+            "columnName": "triggerAtMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "key"
+          ]
+        }
+      },
+      {
+        "tableName": "special_days",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`epochDay` INTEGER NOT NULL, `kind` INTEGER NOT NULL, `name` TEXT NOT NULL, `isHoliday` INTEGER NOT NULL, PRIMARY KEY(`epochDay`, `kind`, `name`))",
+        "fields": [
+          {
+            "fieldPath": "epochDay",
+            "columnName": "epochDay",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "kind",
+            "columnName": "kind",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isHoliday",
+            "columnName": "isHoliday",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "epochDay",
+            "kind",
+            "name"
+          ]
+        }
+      },
+      {
+        "tableName": "lunar_days",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`epochDay` INTEGER NOT NULL, `lunarMonth` INTEGER NOT NULL, `lunarDay` INTEGER NOT NULL, `isLeap` INTEGER NOT NULL, PRIMARY KEY(`epochDay`))",
+        "fields": [
+          {
+            "fieldPath": "epochDay",
+            "columnName": "epochDay",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lunarMonth",
+            "columnName": "lunarMonth",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lunarDay",
+            "columnName": "lunarDay",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isLeap",
+            "columnName": "isLeap",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "epochDay"
+          ]
+        }
+      },
+      {
+        "tableName": "special_fetch_status",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`key` TEXT NOT NULL, `fetchedAtMillis` INTEGER NOT NULL, PRIMARY KEY(`key`))",
+        "fields": [
+          {
+            "fieldPath": "key",
+            "columnName": "key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fetchedAtMillis",
+            "columnName": "fetchedAtMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "key"
+          ]
+        }
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '8b47c2465d345bf8903d462f185154d0')"
+    ]
+  }
+}

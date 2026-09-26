@@ -18,6 +18,7 @@ private object Keys {
     const val VIEWING_YEAR_MONTH = "viewing_year_month"
     const val LAST_NAVIGATED_AT_MILLIS = "last_navigated_at_millis"
     const val SHOW_WEEK_NUMBER = "show_week_number"
+    const val SHOW_LUNAR = "show_lunar"
 }
 
 private fun prefsFor(context: Context, appWidgetId: Int): SharedPreferences =
@@ -56,6 +57,7 @@ private fun SharedPreferences.toWidgetFilterSettings(): WidgetFilterSettings {
         viewingYearMonth = viewingYearMonth,
         lastNavigatedAtMillis = getLong(Keys.LAST_NAVIGATED_AT_MILLIS, 0L),
         showWeekNumber = getBoolean(Keys.SHOW_WEEK_NUMBER, false),
+        showLunar = getBoolean(Keys.SHOW_LUNAR, false),
     )
 }
 
@@ -71,6 +73,7 @@ private fun SharedPreferences.Editor.applyWidgetFilterSettings(settings: WidgetF
     }
     putLong(Keys.LAST_NAVIGATED_AT_MILLIS, settings.lastNavigatedAtMillis)
     putBoolean(Keys.SHOW_WEEK_NUMBER, settings.showWeekNumber)
+    putBoolean(Keys.SHOW_LUNAR, settings.showLunar)
     return this
 }
 
@@ -154,6 +157,8 @@ suspend fun saveWidgetFilterSettings(
     fontScaleStep: Int,
     backgroundOpacity: Float,
     showWeekNumber: Boolean,
+    // null이면 기존 값을 유지한다(백업 복원처럼 이 필드를 모르는 호출부용).
+    showLunar: Boolean? = null,
 ) {
     Log.d(
         TAG,
@@ -168,6 +173,7 @@ suspend fun saveWidgetFilterSettings(
             fontScaleStep = fontScaleStep,
             backgroundOpacity = backgroundOpacity,
             showWeekNumber = showWeekNumber,
+            showLunar = showLunar ?: current.showLunar,
         )
     }
 }

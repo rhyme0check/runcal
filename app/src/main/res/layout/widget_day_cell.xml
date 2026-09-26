@@ -1,39 +1,56 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/day_cell_root"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:gravity="center_horizontal"
-    android:paddingStart="1dp"
-    android:paddingEnd="1dp">
-
-    <FrameLayout
-        android:id="@+id/day_number_frame"
-        android:layout_width="20dp"
-        android:layout_height="20dp">
-
-        <ImageView
-            android:id="@+id/today_badge"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:scaleType="fitXY"
-            android:src="@drawable/widget_today_badge"
-            android:visibility="gone" />
-
-        <TextView
-            android:id="@+id/day_number_text"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:gravity="center"
-            android:textSize="12sp" />
-    </FrameLayout>
+    android:layout_height="match_parent">
 
     <LinearLayout
-        android:id="@+id/day_events_container"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="match_parent"
         android:orientation="vertical"
-        android:layout_marginTop="1dp" />
+        android:gravity="center_horizontal"
+        android:paddingStart="1dp"
+        android:paddingEnd="1dp">
 
-</LinearLayout>
+        <FrameLayout
+            android:id="@+id/day_number_frame"
+            android:layout_width="20dp"
+            android:layout_height="20dp">
+
+            <ImageView
+                android:id="@+id/today_badge"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:scaleType="fitXY"
+                android:src="@drawable/widget_today_badge"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/day_number_text"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:textSize="12sp" />
+        </FrameLayout>
+
+        <LinearLayout
+            android:id="@+id/day_events_container"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginTop="1dp" />
+
+    </LinearLayout>
+
+    <!-- 삭·망·그믐 표식: 칸 우상단에 겹쳐 그려 칸 높이/막대 배치에 영향을 주지 않는다. -->
+    <TextView
+        android:id="@+id/lunar_text"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|end"
+        android:includeFontPadding="false"
+        android:maxLines="1"
+        android:textSize="8sp"
+        android:visibility="gone" />
+
+</FrameLayout>

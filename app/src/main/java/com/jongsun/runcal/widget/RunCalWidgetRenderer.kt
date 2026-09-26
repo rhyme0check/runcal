@@ -21,6 +21,8 @@ import com.jongsun.runcal.data.notion.NotionEventSource
 import com.jongsun.runcal.data.occursOn
 import com.jongsun.runcal.data.resolveEventColor
 import com.jongsun.runcal.data.room.RunCalDatabase
+import com.jongsun.runcal.data.special.SpecialDayPrefs
+import com.jongsun.runcal.data.special.SpecialDayStore
 import com.jongsun.runcal.data.source.EventRepository
 import com.jongsun.runcal.data.source.SourceSelection
 import com.jongsun.runcal.ui.calendar.EventBar
@@ -174,9 +176,27 @@ object RunCalWidgetRenderer {
         }
         val afterNotionMillis = System.currentTimeMillis()
 
-        val events = (calendarEvents + notionEvents).sortedBy { it.begin }
+        // 공휴일/절기/음력: Room 캐시(메모리 스냅샷)만 읽는다 — 네트워크는 절대 여기서 하지 않는다. 캐시에 없는
+        // 연/월은 WorkManager에 조회만 맡기고, 그 사이엔 빈 값으로 그린다. 음력은 4x5 확장 위젯 전용.
+        val isExpandedKind = maxBarsOverride == null && !dotMode
+        val showLunarOnWidget = isExpandedKind && settings.showLunar
+        val specialFlags = SpecialDayPrefs.load(context).copy(showLunar = showLunarOnWidget)
+        val special = if (specialFlags.anyEnabled) {
+            SpecialDayStore.snapshot(context).also {
+                SpecialDayStore.requestMissing(context, it, gridStart, gridEndExclusive, specialFlags)
+            }
+        } else {
+            null
+        }
+        val afterSpecialMillis = System.currentTimeMillis()
+        // 공휴일/절기 이름 막대는 4x5 확장 위젯에서만 그린다. 표준(막대 1줄)은 이름 막대가 유일한 줄을 차지해
+        // 일반 일정을 "+N"으로 밀어내고, 컴팩트(점)는 막대 자체가 없으므로 둘 다 빨간 날짜 숫자만 적용한다.
+        val specialBars = if (isExpandedKind) special?.specialEvents(gridStart, gridEndExclusive, specialFlags).orEmpty() else emptyList()
+
+        val events = (calendarEvents + notionEvents + specialBars).sortedBy { it.begin }
         val resolvedColors = resolveEventColors(context, events)
         val afterColorsMillis = System.currentTimeMillis()
+        val afterColorsMillisFromSpecial = afterColorsMillis - afterSpecialMillis
 
         val root = RemoteViews(context.packageName, R.layout.widget_root)
         root.setInt(R.id.widget_background, "setColorFilter", backgroundColorInt)
@@ -224,6 +244,8 @@ object RunCalWidgetRenderer {
                     maxBarsPerCell = maxBarsPerCell,
                     dotMode = dotMode,
                     resolvedColors = resolvedColors,
+                    isHoliday = specialFlags.showHolidays && special?.isHoliday(day.date) == true,
+                    lunarLabel = if (showLunarOnWidget) special?.lunarMarker(day.date) else null,
                 )
                 weekRow.addView(DAY_SLOT_IDS[dayIndex], cell)
             }
@@ -238,7 +260,8 @@ object RunCalWidgetRenderer {
                 "settings=${afterSettingsMillis - renderStartMillis}ms " +
                 "calendar=${afterCalendarMillis - afterSettingsMillis}ms " +
                 "notion=${afterNotionMillis - afterCalendarMillis}ms " +
-                "colors=${afterColorsMillis - afterNotionMillis}ms " +
+                "special=${afterSpecialMillis - afterNotionMillis}ms(${if (special != null) "on" else "off"}) " +
+                "colors=${afterColorsMillisFromSpecial}ms " +
                 "lanePacking=${lanePackingNanos / 1_000_000}ms " +
                 "viewBuild=${viewBuildNanos / 1_000_000}ms " +
                 "total=${totalMillis}ms",
@@ -307,9 +330,17 @@ object RunCalWidgetRenderer {
         maxBarsPerCell: Int,
         dotMode: Boolean,
         resolvedColors: Map<Long, ResolvedEventColor>,
+        isHoliday: Boolean,
+        lunarLabel: String?,
     ): RemoteViews {
         val isToday = day.date == today
         val cell = RemoteViews(context.packageName, R.layout.widget_day_cell)
+        if (lunarLabel != null) {
+            // 삭·망·그믐 표식만 칸 우상단에 겹쳐 그린다(별도 행 없음).
+            cell.setViewVisibility(R.id.lunar_text, View.VISIBLE)
+            cell.setTextViewText(R.id.lunar_text, lunarLabel)
+            cell.setTextColor(R.id.lunar_text, RunCalWidgetColorRes.onBackgroundDim(context))
+        }
         cell.setTextViewText(R.id.day_number_text, day.date.dayOfMonth.toString())
         cell.setTextViewTextSize(R.id.day_number_text, TypedValue.COMPLEX_UNIT_SP, textSizes.dayNumberSp)
         cell.setViewLayoutWidth(R.id.day_number_frame, textSizes.dayBadgeSizeDp, TypedValue.COMPLEX_UNIT_DIP)
@@ -321,7 +352,7 @@ object RunCalWidgetRenderer {
             cell.setTextColor(R.id.day_number_text, RunCalWidgetColorRes.onTodayBackground(context))
         } else {
             cell.setViewVisibility(R.id.today_badge, View.GONE)
-            cell.setTextColor(R.id.day_number_text, dayNumberColor(context, day))
+            cell.setTextColor(R.id.day_number_text, dayNumberColor(context, day, isHoliday))
         }
 
         // 새로 만든 day_events_container라 이론상 비어있지만, addView 누적 버그를 한 번 겪었으니
@@ -720,12 +751,15 @@ object RunCalWidgetRenderer {
     }
 }
 
-private fun dayNumberColor(context: Context, day: MonthGridDay): Int = when {
-    !day.isCurrentMonth -> when (day.date.dayOfWeek) {
-        DayOfWeek.SUNDAY -> RunCalWidgetColorRes.sundayDim(context)
-        DayOfWeek.SATURDAY -> RunCalWidgetColorRes.saturdayDim(context)
+private fun dayNumberColor(context: Context, day: MonthGridDay, isHoliday: Boolean): Int = when {
+    // 공휴일은 요일과 무관하게 일요일과 같은 빨강으로(토요일 공휴일도 빨강).
+    !day.isCurrentMonth -> when {
+        isHoliday -> RunCalWidgetColorRes.sundayDim(context)
+        day.date.dayOfWeek == DayOfWeek.SUNDAY -> RunCalWidgetColorRes.sundayDim(context)
+        day.date.dayOfWeek == DayOfWeek.SATURDAY -> RunCalWidgetColorRes.saturdayDim(context)
         else -> RunCalWidgetColorRes.onBackgroundDim(context)
     }
+    isHoliday -> RunCalWidgetColorRes.sunday(context)
     else -> when (day.date.dayOfWeek) {
         DayOfWeek.SUNDAY -> RunCalWidgetColorRes.sunday(context)
         DayOfWeek.SATURDAY -> RunCalWidgetColorRes.saturday(context)

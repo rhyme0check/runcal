@@ -142,9 +142,12 @@ private fun WidgetConfigScreen(
     var fontStep by remember { mutableIntStateOf(DEFAULT_FONT_SCALE_STEP) }
     var opacity by remember { mutableFloatStateOf(DEFAULT_BACKGROUND_OPACITY) }
     var showWeekNumber by remember { mutableStateOf(false) }
+    var showLunar by remember { mutableStateOf(false) }
     var loaded by remember { mutableStateOf(false) }
     // 위젯 종류에 따라 불필요한 항목(예: 오늘 위젯의 주차 번호)을 숨긴다.
     val isMonthlyWidget = remember(appWidgetId) { WidgetKind.forAppWidgetId(context, appWidgetId).isMonthly }
+    // 음력은 공간이 넉넉한 4x5 월간 확장 위젯에서만 그린다.
+    val isExpandedWidget = remember(appWidgetId) { WidgetKind.forAppWidgetId(context, appWidgetId) == WidgetKind.MONTHLY_EXPANDED }
 
     // Notion 연동은 캘린더 권한과 무관하므로 별도로, 바로 불러온다.
     LaunchedEffect(Unit) {
@@ -161,6 +164,7 @@ private fun WidgetConfigScreen(
         fontStep = existing.fontScaleStep
         opacity = existing.backgroundOpacity
         showWeekNumber = existing.showWeekNumber
+        showLunar = existing.showLunar
         loaded = true
     }
 
@@ -248,6 +252,19 @@ private fun WidgetConfigScreen(
                     Text(text = "주차 번호 표시", style = MaterialTheme.typography.titleMedium)
                 }
             }
+            if (isExpandedWidget) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    Checkbox(checked = showLunar, onCheckedChange = { showLunar = it })
+                    Column {
+                        Text(text = "음력 표시", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            text = "날짜 아래에 음력을 작게 표시합니다(4x5 확장 위젯 전용).",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = {
@@ -264,6 +281,7 @@ private fun WidgetConfigScreen(
                             fontScaleStep = fontStep,
                             backgroundOpacity = opacity,
                             showWeekNumber = showWeekNumber,
+                            showLunar = showLunar,
                         )
                         onSaved()
                     }

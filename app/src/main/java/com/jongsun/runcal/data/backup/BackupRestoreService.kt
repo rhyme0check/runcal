@@ -49,6 +49,7 @@ object BackupRestoreService {
             val calendarRepository = CalendarRepository(context)
 
             restoreAppSettings(appSettingsRepository, payload.appSettings)
+            restoreSpecialDayFlags(context, payload.appSettings)
             val presetsCount = restorePresets(appSettingsRepository, payload.appPresets, mode)
             val (widgetsRestored, widgetsSkipped) = restoreWidgetInstances(context, payload.widgetInstances)
             val notionRestored = restoreNotionDatabases(context, db, payload.notionDatabases, mode)
@@ -74,6 +75,20 @@ object BackupRestoreService {
         repository.setFontScaleStep(snapshot.fontScaleStep)
         repository.setActivePresetId(snapshot.activePresetId)
         repository.setNotionSyncIntervalHours(snapshot.notionSyncIntervalHours)
+    }
+
+    /** 음력/공휴일/절기 표시 토글 — 백업에 값이 있는 항목만 덮어쓰고(구버전 백업은 null) 위젯도 바로 다시 그린다. */
+    private suspend fun restoreSpecialDayFlags(context: Context, snapshot: BackupAppSettings) {
+        val current = com.jongsun.runcal.data.special.SpecialDayPrefs.load(context)
+        com.jongsun.runcal.data.special.SpecialDayPrefs.save(
+            context,
+            current.copy(
+                showLunar = snapshot.showLunar ?: current.showLunar,
+                showHolidays = snapshot.showHolidays ?: current.showHolidays,
+                showSolarTerms = snapshot.showSolarTerms ?: current.showSolarTerms,
+            ),
+        )
+        com.jongsun.runcal.data.special.SpecialDayStore.invalidate()
     }
 
     /** 병합=id 기준 합집합(충돌 시 백업본 우선), 덮어쓰기=전체 교체. */
@@ -109,6 +124,7 @@ object BackupRestoreService {
             saveWidgetFilterSettings(
                 context, snapshot.appWidgetId, snapshot.presets, snapshot.currentPresetIndex,
                 snapshot.fontScaleStep, snapshot.backgroundOpacity, snapshot.showWeekNumber,
+                showLunar = snapshot.showLunar,
             )
             restored++
         }

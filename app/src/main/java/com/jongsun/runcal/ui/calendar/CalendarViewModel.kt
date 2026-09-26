@@ -33,6 +33,10 @@ import com.jongsun.runcal.work.NotionSyncResult
 import com.jongsun.runcal.work.WorkScheduler
 import java.time.DayOfWeek
 import java.time.LocalDate
+import com.jongsun.runcal.data.special.SpecialDayFlags
+import com.jongsun.runcal.data.special.SpecialDayPrefs
+import com.jongsun.runcal.data.special.SpecialDaySnapshot
+import com.jongsun.runcal.data.special.SpecialDayStore
 import java.time.YearMonth
 import java.time.ZoneId
 import java.time.temporal.ChronoUnit
@@ -113,7 +117,23 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
 
     private val loadingMonths = mutableSetOf<YearMonth>()
 
+    // 음력/공휴일/절기. 표시 설정은 위젯이 동기로 읽어야 해서 SharedPreferences(SpecialDayPrefs)에 두고,
+    // 데이터는 Room 캐시의 메모리 스냅샷만 읽는다(네트워크는 WorkManager가 채운다).
+    private val _specialFlags = MutableStateFlow(SpecialDayPrefs.load(application))
+    val specialFlags: StateFlow<SpecialDayFlags> = _specialFlags.asStateFlow()
+
+    private val _specialSnapshot = MutableStateFlow(SpecialDaySnapshot())
+    val specialSnapshot: StateFlow<SpecialDaySnapshot> = _specialSnapshot.asStateFlow()
+
     init {
+        viewModelScope.launch {
+            // 캐시가 새로 채워질 때마다(version 증가) 스냅샷을 다시 읽어 화면에 반영한다.
+            SpecialDayStore.version.collect {
+                _specialSnapshot.value = SpecialDayStore.snapshot(getApplication())
+                // 백업 복원이 표시 설정을 바꾼 경우에도 반영되도록 함께 다시 읽는다.
+                _specialFlags.value = SpecialDayPrefs.load(getApplication())
+            }
+        }
         viewModelScope.launch {
             appSettingsRepository.settings.collect { settings ->
                 val calendarFilterChanged = _visibleCalendarIds.value != settings.visibleCalendarIds
@@ -190,7 +210,25 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
         selectDate(yearMonth.atDay(1))
     }
 
+    /** 이 달 그리드에 필요한 공휴일/절기/음력이 캐시에 없으면 백그라운드 조회를 예약한다(없는 동안은 빈 값으로 그림). */
+    private fun requestSpecialDaysFor(yearMonth: YearMonth) {
+        val flags = _specialFlags.value
+        if (!flags.anyEnabled) return
+        viewModelScope.launch {
+            val (start, endExclusive) = monthGridDateRange(buildMonthGridWeeks(yearMonth, _weekStartDay.value))
+            SpecialDayStore.requestMissing(getApplication(), SpecialDayStore.snapshot(getApplication()), start, endExclusive, flags)
+        }
+    }
+
+    fun setSpecialFlags(flags: SpecialDayFlags) {
+        SpecialDayPrefs.save(getApplication(), flags)
+        _specialFlags.value = flags
+        requestSpecialDaysFor(_visibleYearMonth.value)
+        viewModelScope.launch { RunCalWidgetRenderer.updateAllWidgets(getApplication()) }
+    }
+
     fun ensureMonthLoaded(yearMonth: YearMonth, force: Boolean = false) {
+        requestSpecialDaysFor(yearMonth)
         if (!force && (_monthCache.value.containsKey(yearMonth) || yearMonth in loadingMonths)) return
         loadingMonths += yearMonth
         viewModelScope.launch {

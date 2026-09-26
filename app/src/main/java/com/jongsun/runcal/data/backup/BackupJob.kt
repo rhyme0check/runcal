@@ -47,6 +47,7 @@ object BackupJob {
     suspend fun buildPayload(context: Context, backupType: BackupType): BackupPayload = withContext(Dispatchers.IO) {
         val appSettingsRepository = AppSettingsRepository(context)
         val settings = appSettingsRepository.settings.first()
+        val specialFlags = com.jongsun.runcal.data.special.SpecialDayPrefs.load(context)
         val db = RunCalDatabase.getInstance(context)
         val calendarRepository = CalendarRepository(context)
 
@@ -61,6 +62,7 @@ object BackupJob {
                 fontScaleStep = widgetSettings.fontScaleStep,
                 backgroundOpacity = widgetSettings.backgroundOpacity,
                 showWeekNumber = widgetSettings.showWeekNumber,
+                showLunar = widgetSettings.showLunar,
             )
         }
 
@@ -108,6 +110,9 @@ object BackupJob {
                 fontScaleStep = settings.fontScaleStep,
                 activePresetId = settings.activePresetId,
                 notionSyncIntervalHours = settings.notionSyncIntervalHours,
+                showLunar = specialFlags.showLunar,
+                showHolidays = specialFlags.showHolidays,
+                showSolarTerms = specialFlags.showSolarTerms,
             ),
             appPresets = settings.presets,
             widgetInstances = widgetInstances,

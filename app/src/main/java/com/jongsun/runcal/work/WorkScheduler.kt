@@ -20,6 +20,8 @@ private const val MONTHLY_BACKUP_INTERVAL_DAYS = 30L
 private const val REMINDER_RESYNC_PERIODIC_NAME = "reminder_resync_periodic"
 private const val REMINDER_RESYNC_MANUAL_NAME = "reminder_resync_manual"
 private const val REMINDER_RESYNC_INTERVAL_HOURS = 6L
+private const val SPECIAL_DAY_PREFETCH_NAME = "special_day_prefetch"
+private const val SPECIAL_DAY_PERIODIC_NAME = "special_day_periodic"
 
 /** 기본 동기화 주기. 설정 화면의 1/3/6/12시간 선택(3단계)이 이 값을 대체한다. */
 const val DEFAULT_NOTION_SYNC_INTERVAL_HOURS = 3L
@@ -40,6 +42,26 @@ object WorkScheduler {
         scheduleDailyBackup(context)
         scheduleMonthlyBackup(context)
         scheduleReminderResync(context)
+        scheduleSpecialDaySync(context)
+    }
+
+    /**
+     * 공휴일/절기/음력 캐시. 앱 시작마다 한 번 선반입(이미 받은 건 Worker가 건너뛰고 오래된 공휴일·절기만 갱신)하고,
+     * 주 1회 주기 작업으로도 같은 일을 해 앱을 안 열어도 새해/임시공휴일 변경이 반영되게 한다.
+     */
+    fun scheduleSpecialDaySync(context: Context) {
+        val constraints = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
+        val manager = WorkManager.getInstance(context)
+        manager.enqueueUniqueWork(
+            SPECIAL_DAY_PREFETCH_NAME,
+            ExistingWorkPolicy.KEEP,
+            OneTimeWorkRequestBuilder<SpecialDaySyncWorker>().setConstraints(constraints).build(),
+        )
+        manager.enqueueUniquePeriodicWork(
+            SPECIAL_DAY_PERIODIC_NAME,
+            ExistingPeriodicWorkPolicy.KEEP,
+            PeriodicWorkRequestBuilder<SpecialDaySyncWorker>(7, TimeUnit.DAYS).setConstraints(constraints).build(),
+        )
     }
 
     /** 일일 로컬 백업. 네트워크는 필요 없고, 배터리가 부족할 땐 미룬다. */

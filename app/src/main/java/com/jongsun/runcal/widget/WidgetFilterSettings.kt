@@ -51,6 +51,8 @@ data class WidgetFilterSettings(
     val lastNavigatedAtMillis: Long = 0L,
     /** 각 주 왼쪽에 ISO 주차 숫자 칸을 추가로 그릴지. 기본 off. */
     val showWeekNumber: Boolean = false,
+    /** 각 날짜 아래에 음력을 작게 표시할지. 4x5 월간 확장 위젯에서만 효과가 있다(나머지는 공간 부족). 기본 off. */
+    val showLunar: Boolean = false,
 )
 
 fun WidgetFilterSettings.activePreset(): WidgetPreset {

@@ -2,6 +2,7 @@ package com.jongsun.runcal.widget
 
 import com.jongsun.runcal.data.EventItem
 import com.jongsun.runcal.data.dateRange
+import com.jongsun.runcal.data.special.isSpecialDay
 import com.jongsun.runcal.ui.calendar.DAYS_IN_WEEK
 import com.jongsun.runcal.ui.calendar.EventBar
 import com.jongsun.runcal.ui.calendar.MonthGridWeek
@@ -49,24 +50,22 @@ fun computeWidgetWeekBars(
             )
         }
         // 여러 날에 걸친(더 긴) 일정을 먼저 배치해야 레인이 안정적으로 이어진다.
-        .sortedWith(compareBy({ it.startCol }, { it.startCol - it.endCol }))
+        // 공휴일/절기 이름 막대는 항상 그보다 먼저 배치해 최상단 레인을 차지한다.
+        .sortedWith(compareBy({ if (it.event.isSpecialDay()) 0 else 1 }, { it.startCol }, { it.startCol - it.endCol }))
 
-    val laneEnds = mutableListOf<Int>()
     val lanes = mutableListOf<MutableList<EventBar?>>()
     val overflowCountByCol = IntArray(DAYS_IN_WEEK)
 
     for (bar in candidates) {
-        var lane = laneEnds.indexOfFirst { it < bar.startCol }
+        // 공휴일 막대가 먼저 깔려 있으면 레인 안에 빈 칸이 생기므로, "끝난 칸" 대신 실제 점유 여부로 자리를 찾는다.
+        var lane = lanes.indexOfFirst { l -> (bar.startCol..bar.endCol).all { l[it] == null } }
         if (lane == -1) {
             if (lanes.size >= maxLanes) {
                 for (col in bar.startCol..bar.endCol) overflowCountByCol[col]++
                 continue
             }
-            laneEnds += bar.endCol
             lanes += MutableList(DAYS_IN_WEEK) { null }
             lane = lanes.lastIndex
-        } else {
-            laneEnds[lane] = bar.endCol
         }
         for (col in bar.startCol..bar.endCol) {
             lanes[lane][col] = bar
