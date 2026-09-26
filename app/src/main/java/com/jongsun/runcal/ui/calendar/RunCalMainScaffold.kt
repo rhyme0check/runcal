@@ -58,6 +58,7 @@ fun RunCalMainScaffold(
     val viewModel: CalendarViewModel = viewModel()
     var selectedTab by rememberSaveable { mutableStateOf(RunCalTab.MONTHLY) }
     var showMonthPicker by remember { mutableStateOf(false) }
+    var autoOpenEventId by remember { mutableStateOf<Long?>(null) }
 
     LaunchedEffect(pendingDeepLinkTarget) {
         when (val target = pendingDeepLinkTarget) {
@@ -69,6 +70,12 @@ fun RunCalMainScaffold(
             is DeepLinkTarget.Month -> {
                 viewModel.requestJumpToMonth(target.yearMonth)
                 selectedTab = RunCalTab.MONTHLY
+                onDeepLinkConsumed()
+            }
+            is DeepLinkTarget.Event -> {
+                viewModel.selectDate(target.date)
+                selectedTab = RunCalTab.DAILY
+                autoOpenEventId = target.eventId
                 onDeepLinkConsumed()
             }
             null -> Unit
@@ -146,7 +153,11 @@ fun RunCalMainScaffold(
             Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
                 when (selectedTab) {
                     RunCalTab.MONTHLY -> MonthlyScreen(viewModel)
-                    RunCalTab.DAILY -> DailyScreen(viewModel)
+                    RunCalTab.DAILY -> DailyScreen(
+                        viewModel = viewModel,
+                        autoOpenEventId = autoOpenEventId,
+                        onAutoOpenEventConsumed = { autoOpenEventId = null },
+                    )
                     RunCalTab.LIST -> ListScreen(
                         viewModel = viewModel,
                         onNavigateToDate = { date ->

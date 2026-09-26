@@ -26,14 +26,26 @@ private val MIGRATION_2_3 = object : Migration(2, 3) {
     }
 }
 
+private val MIGRATION_3_4 = object : Migration(3, 4) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS scheduled_reminders (" +
+                "`key` TEXT NOT NULL PRIMARY KEY, eventId INTEGER NOT NULL, " +
+                "occurrenceBeginMillis INTEGER NOT NULL, reminderMinutes INTEGER NOT NULL, " +
+                "triggerAtMillis INTEGER NOT NULL)",
+        )
+    }
+}
+
 @Database(
     entities = [
         NotionDatabaseEntity::class,
         NotionEventEntity::class,
         EventColorStyleEntity::class,
         LocalEventProvenanceEntity::class,
+        ScheduledReminderEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class RunCalDatabase : RoomDatabase() {
@@ -41,6 +53,7 @@ abstract class RunCalDatabase : RoomDatabase() {
     abstract fun notionEventDao(): NotionEventDao
     abstract fun eventColorStyleDao(): EventColorStyleDao
     abstract fun localEventProvenanceDao(): LocalEventProvenanceDao
+    abstract fun scheduledReminderDao(): ScheduledReminderDao
 
     companion object {
         @Volatile private var instance: RunCalDatabase? = null
@@ -51,7 +64,7 @@ abstract class RunCalDatabase : RoomDatabase() {
                     context.applicationContext,
                     RunCalDatabase::class.java,
                     "runcal_database",
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build().also { instance = it }
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4).build().also { instance = it }
             }
     }
 }

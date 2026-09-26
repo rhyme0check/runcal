@@ -35,7 +35,12 @@ import java.time.LocalDate
 import java.time.YearMonth
 
 @Composable
-fun DailyScreen(viewModel: CalendarViewModel, modifier: Modifier = Modifier) {
+fun DailyScreen(
+    viewModel: CalendarViewModel,
+    modifier: Modifier = Modifier,
+    autoOpenEventId: Long? = null,
+    onAutoOpenEventConsumed: () -> Unit = {},
+) {
     val selectedDate by viewModel.selectedDate.collectAsStateWithLifecycle()
     val monthCache by viewModel.monthCache.collectAsStateWithLifecycle()
     val colorStyles by viewModel.eventColorStyles.collectAsStateWithLifecycle()
@@ -43,6 +48,15 @@ fun DailyScreen(viewModel: CalendarViewModel, modifier: Modifier = Modifier) {
 
     var editingEvent by remember { mutableStateOf<EventItem?>(null) }
     var creatingDate by remember { mutableStateOf<LocalDate?>(null) }
+
+    // 알림 탭 전용 진입점 — 날짜 선택만으로는 그 회차의 상세까지 열리지 않으므로, 대상 이벤트를
+    // 직접 읽어와 편집 다이얼로그를 강제로 띄운다.
+    LaunchedEffect(autoOpenEventId) {
+        val id = autoOpenEventId ?: return@LaunchedEffect
+        val detail = viewModel.getEventDetail(id)
+        if (detail != null) editingEvent = detail
+        onAutoOpenEventConsumed()
+    }
 
     val pagerState = rememberPagerState(
         initialPage = viewModel.pageForDate(selectedDate),

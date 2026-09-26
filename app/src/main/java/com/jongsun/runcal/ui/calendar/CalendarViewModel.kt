@@ -15,6 +15,7 @@ import com.jongsun.runcal.data.DEFAULT_APP_FONT_SCALE_STEP
 import com.jongsun.runcal.data.DEFAULT_APP_PRESET
 import com.jongsun.runcal.data.DEFAULT_APP_PRESET_ID
 import com.jongsun.runcal.data.DEFAULT_NOTION_SYNC_INTERVAL_HOURS
+import com.jongsun.runcal.data.DEFAULT_REMINDER_MINUTES
 import com.jongsun.runcal.data.DEFAULT_WEEK_START_DAY
 import com.jongsun.runcal.data.EventItem
 import com.jongsun.runcal.data.notion.NotionApiClient
@@ -96,6 +97,12 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
     private val _notionDatabases = MutableStateFlow<List<NotionDatabaseEntity>>(emptyList())
     val notionDatabases: StateFlow<List<NotionDatabaseEntity>> = _notionDatabases.asStateFlow()
 
+    private val _remindersEnabled = MutableStateFlow(true)
+    val remindersEnabled: StateFlow<Boolean> = _remindersEnabled.asStateFlow()
+
+    private val _defaultReminderMinutes = MutableStateFlow<Int?>(DEFAULT_REMINDER_MINUTES)
+    val defaultReminderMinutes: StateFlow<Int?> = _defaultReminderMinutes.asStateFlow()
+
     // sourceKey("calendar:<id>" | "notion:<registrationId>") → 스타일. 앱/위젯이 공유하는 Room에서
     // 읽으므로 설정 화면에서 바꾸면 위젯도 같은 값을 보게 된다.
     private val _eventColorStyles = MutableStateFlow<Map<String, EventColorStyleEntity>>(emptyMap())
@@ -119,6 +126,8 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
                 _presets.value = settings.presets
                 _activePresetId.value = settings.activePresetId
                 _notionSyncIntervalHours.value = settings.notionSyncIntervalHours
+                _remindersEnabled.value = settings.remindersEnabled
+                _defaultReminderMinutes.value = settings.defaultReminderMinutes
                 // DataStore의 첫 값이 도착하기 전에 Monthly/Daily가 먼저 컴포지션되어
                 // ensureMonthLoaded가 기본값(빈 Notion 필터)으로 먼저 캐시를 채워버릴 수 있다.
                 // "최초 로드였는지"로 걸러내면 그 잘못 채워진 캐시를 영영 못 고치므로, 매번
@@ -257,6 +266,7 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
             invalidateCache()
             ensureMonthLoaded(_visibleYearMonth.value, force = true)
             RunCalWidgetRenderer.updateAllWidgets(getApplication())
+            WorkScheduler.triggerReminderResyncNow(getApplication())
         }
         return id
     }
@@ -277,6 +287,7 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
             invalidateCache()
             ensureMonthLoaded(_visibleYearMonth.value, force = true)
             RunCalWidgetRenderer.updateAllWidgets(getApplication())
+            WorkScheduler.triggerReminderResyncNow(getApplication())
         }
         return updated
     }
@@ -287,6 +298,7 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
             invalidateCache()
             ensureMonthLoaded(_visibleYearMonth.value, force = true)
             RunCalWidgetRenderer.updateAllWidgets(getApplication())
+            WorkScheduler.triggerReminderResyncNow(getApplication())
         }
         return deleted
     }
@@ -324,6 +336,7 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
             invalidateCache()
             ensureMonthLoaded(_visibleYearMonth.value, force = true)
             RunCalWidgetRenderer.updateAllWidgets(getApplication())
+            WorkScheduler.triggerReminderResyncNow(getApplication())
         }
         return id
     }
@@ -335,6 +348,7 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
             invalidateCache()
             ensureMonthLoaded(_visibleYearMonth.value, force = true)
             RunCalWidgetRenderer.updateAllWidgets(getApplication())
+            WorkScheduler.triggerReminderResyncNow(getApplication())
         }
         return id
     }
@@ -366,6 +380,7 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
         invalidateCache()
         ensureMonthLoaded(_visibleYearMonth.value, force = true)
         RunCalWidgetRenderer.updateAllWidgets(getApplication())
+        WorkScheduler.triggerReminderResyncNow(getApplication())
         return newId
     }
 
@@ -381,6 +396,7 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
             invalidateCache()
             ensureMonthLoaded(_visibleYearMonth.value, force = true)
             RunCalWidgetRenderer.updateAllWidgets(getApplication())
+            WorkScheduler.triggerReminderResyncNow(getApplication())
         }
         return truncated
     }
@@ -466,6 +482,20 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
     suspend fun setNotionSyncIntervalHours(hours: Int) {
         appSettingsRepository.setNotionSyncIntervalHours(hours)
         WorkScheduler.reschedulePeriodic(getApplication(), hours.toLong())
+    }
+
+    /** 알림 전체 on/off. 끄면 이미 걸린 알람도 즉시 정리한다(다음 재동기화까지 기다리지 않음). */
+    suspend fun setRemindersEnabled(enabled: Boolean) {
+        appSettingsRepository.setRemindersEnabled(enabled)
+        if (enabled) {
+            WorkScheduler.triggerReminderResyncNow(getApplication())
+        } else {
+            com.jongsun.runcal.notification.ReminderScheduler.cancelAll(getApplication())
+        }
+    }
+
+    suspend fun setDefaultReminderMinutes(minutes: Int?) {
+        appSettingsRepository.setDefaultReminderMinutes(minutes)
     }
 
     /**

@@ -2,6 +2,7 @@ package com.jongsun.runcal
 
 import android.app.Application
 import androidx.work.Configuration
+import com.jongsun.runcal.notification.ensureReminderNotificationChannel
 import com.jongsun.runcal.work.WorkScheduler
 import com.jongsun.runcal.work.RunCalWorkerFactory
 
@@ -25,6 +26,7 @@ class RunCalApplication : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
+        ensureReminderNotificationChannel(this)
         WorkScheduler.scheduleAll(this)
     }
 }

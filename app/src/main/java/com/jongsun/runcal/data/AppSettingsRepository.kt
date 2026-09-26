@@ -1,6 +1,7 @@
 package com.jongsun.runcal.data
 
 import android.content.Context
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
@@ -22,6 +23,9 @@ val DEFAULT_WEEK_START_DAY: DayOfWeek = DayOfWeek.SUNDAY
 /** Notion 동기화 주기로 고를 수 있는 값들(시간 단위). 선택 UI는 3단계에서 붙인다. */
 val NOTION_SYNC_INTERVAL_HOUR_OPTIONS = listOf(1, 3, 6, 12)
 const val DEFAULT_NOTION_SYNC_INTERVAL_HOURS = 3
+
+/** 새 일정을 만들 때 기본으로 깔아줄 알림 오프셋(분). null이면 알림 없이 시작. */
+const val DEFAULT_REMINDER_MINUTES = 10
 
 /**
  * 앱 화면 전용 표시 설정.
@@ -45,6 +49,11 @@ data class AppSettings(
     // 7일 뒤 만료되므로, 월간(30일) 백업이 조용히 계속 건너뛰어져도 사용자가 알아챌 수 있게
     // 마지막 성공 시각을 별도로 남긴다(driveLastError만으로는 "성공한 적이 언제인지" 알 수 없음).
     val driveLastSuccessAtMillis: Long? = null,
+    // 알림 발송 전체 on/off. 꺼져 있으면 ReminderScheduler가 재동기화 자체를 건너뛴다(이미 걸린
+    // 알람도 정리한다) — 권한은 있어도 사용자가 끄고 싶을 수 있어 별도 스위치로 둔다.
+    val remindersEnabled: Boolean = true,
+    // 새 일정 생성 시 기본으로 추가할 알림 오프셋(분). null = 알림 없이 시작.
+    val defaultReminderMinutes: Int? = DEFAULT_REMINDER_MINUTES,
 )
 
 class AppSettingsRepository(private val context: Context) {
@@ -60,6 +69,11 @@ class AppSettingsRepository(private val context: Context) {
         val DRIVE_ACCOUNT_EMAIL = stringPreferencesKey("drive_account_email")
         val DRIVE_LAST_ERROR = stringPreferencesKey("drive_last_error")
         val DRIVE_LAST_SUCCESS_AT_MILLIS = longPreferencesKey("drive_last_success_at_millis")
+        val REMINDERS_ENABLED = booleanPreferencesKey("reminders_enabled")
+        val DEFAULT_REMINDER_MINUTES = intPreferencesKey("default_reminder_minutes")
+        // DEFAULT_REMINDER_MINUTES가 "알림 없음"(null)인지 "저장된 적 없음"(기본값 적용)인지
+        // 구분하기 위한 별도 플래그 — IntPreferencesKey는 null을 직접 저장할 수 없다.
+        val DEFAULT_REMINDER_NONE = booleanPreferencesKey("default_reminder_none")
     }
 
     val settings: Flow<AppSettings> = context.appSettingsDataStore.data.map { prefs ->
@@ -78,6 +92,12 @@ class AppSettingsRepository(private val context: Context) {
             driveAccountEmail = prefs[Keys.DRIVE_ACCOUNT_EMAIL],
             driveLastError = prefs[Keys.DRIVE_LAST_ERROR],
             driveLastSuccessAtMillis = prefs[Keys.DRIVE_LAST_SUCCESS_AT_MILLIS],
+            remindersEnabled = prefs[Keys.REMINDERS_ENABLED] ?: true,
+            defaultReminderMinutes = if (prefs[Keys.DEFAULT_REMINDER_NONE] == true) {
+                null
+            } else {
+                prefs[Keys.DEFAULT_REMINDER_MINUTES] ?: DEFAULT_REMINDER_MINUTES
+            },
         )
     }
 
@@ -132,5 +152,22 @@ class AppSettingsRepository(private val context: Context) {
 
     suspend fun setDriveLastSuccessAtMillis(atMillis: Long) {
         context.appSettingsDataStore.edit { prefs -> prefs[Keys.DRIVE_LAST_SUCCESS_AT_MILLIS] = atMillis }
+    }
+
+    suspend fun setRemindersEnabled(enabled: Boolean) {
+        context.appSettingsDataStore.edit { prefs -> prefs[Keys.REMINDERS_ENABLED] = enabled }
+    }
+
+    /** null = "알림 없음"을 기본값으로 저장(0분 = 정시 알림과는 다름). */
+    suspend fun setDefaultReminderMinutes(minutes: Int?) {
+        context.appSettingsDataStore.edit { prefs ->
+            if (minutes == null) {
+                prefs[Keys.DEFAULT_REMINDER_NONE] = true
+                prefs.remove(Keys.DEFAULT_REMINDER_MINUTES)
+            } else {
+                prefs[Keys.DEFAULT_REMINDER_NONE] = false
+                prefs[Keys.DEFAULT_REMINDER_MINUTES] = minutes
+            }
+        }
     }
 }

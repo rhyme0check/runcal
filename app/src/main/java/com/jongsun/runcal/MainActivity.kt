@@ -1,9 +1,12 @@
 package com.jongsun.runcal
 
+import android.Manifest
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
@@ -31,17 +34,21 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import com.jongsun.runcal.data.CALENDAR_PERMISSIONS
 import com.jongsun.runcal.data.hasCalendarPermissions
 import com.jongsun.runcal.ui.calendar.RunCalMainScaffold
 import com.jongsun.runcal.ui.theme.RunCalTheme
+import com.jongsun.runcal.work.WorkScheduler
 import java.time.LocalDate
 import java.time.YearMonth
 
-/** 위젯에서 앱으로 진입할 때 어디로 이동할지를 나타낸다. */
+/** 위젯/알림에서 앱으로 진입할 때 어디로 이동할지를 나타낸다. */
 sealed interface DeepLinkTarget {
     data class Day(val date: LocalDate) : DeepLinkTarget
     data class Month(val yearMonth: YearMonth) : DeepLinkTarget
+    /** 알림 탭 전용 — 날짜로 이동하는 데서 그치지 않고 그 일정의 상세(편집) 다이얼로그까지 연다. */
+    data class Event(val eventId: Long, val date: LocalDate) : DeepLinkTarget
 }
 
 class MainActivity : ComponentActivity() {
@@ -77,8 +84,15 @@ class MainActivity : ComponentActivity() {
         /** 위젯 헤더의 빈 영역을 탭했을 때 전달되는 대상 연월(YearMonth.toString(), 예: "2026-09"). */
         const val EXTRA_TARGET_YEAR_MONTH = "com.jongsun.runcal.EXTRA_TARGET_YEAR_MONTH"
 
+        /** 알림을 탭했을 때 전달되는 대상 일정의 CalendarContract 이벤트 id. */
+        const val EXTRA_TARGET_EVENT_ID = "com.jongsun.runcal.EXTRA_TARGET_EVENT_ID"
+
         private fun extractDeepLinkTarget(intent: Intent?): DeepLinkTarget? {
+            val eventId = intent?.getLongExtra(EXTRA_TARGET_EVENT_ID, -1L) ?: -1L
             val epochDay = intent?.getLongExtra(EXTRA_TARGET_DATE_EPOCH_DAY, Long.MIN_VALUE) ?: Long.MIN_VALUE
+            if (eventId > 0 && epochDay != Long.MIN_VALUE) {
+                return DeepLinkTarget.Event(eventId, LocalDate.ofEpochDay(epochDay))
+            }
             if (epochDay != Long.MIN_VALUE) {
                 return DeepLinkTarget.Day(LocalDate.ofEpochDay(epochDay))
             }
@@ -102,12 +116,19 @@ fun RunCalApp(
     var permissionGranted by remember { mutableStateOf(hasCalendarPermissions(context)) }
     var permanentlyDenied by remember { mutableStateOf(false) }
 
+    // 알림 권한(POST_NOTIFICATIONS)은 캘린더 권한과 별개로 요청한다 — 거부해도 캘린더/위젯 기능은
+    // 그대로 쓸 수 있어야 하므로 화면을 막지 않고, 결과와 무관하게 바로 다음으로 넘어간다.
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) { }
+
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions(),
     ) { results ->
         permissionGranted = results.values.all { it }
         if (permissionGranted) {
             CalendarObserverManager.register(context)
+            WorkScheduler.triggerReminderResyncNow(context)
         } else {
             val activity = context as? Activity
             val shouldShowRationale = activity != null &&
@@ -119,6 +140,13 @@ fun RunCalApp(
     LaunchedEffect(Unit) {
         if (!permissionGranted) {
             permissionLauncher.launch(CALENDAR_PERMISSIONS)
+        } else {
+            WorkScheduler.triggerReminderResyncNow(context)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
 

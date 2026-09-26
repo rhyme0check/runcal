@@ -62,6 +62,7 @@ import com.jongsun.runcal.data.MIN_APP_FONT_SCALE_STEP
 import com.jongsun.runcal.data.room.NotionDatabaseEntity
 import com.jongsun.runcal.export.WeeklyExportDialog
 import com.jongsun.runcal.ui.backup.BackupSettingsSection
+import com.jongsun.runcal.ui.notification.ReminderSettingsSection
 import com.jongsun.runcal.ui.notion.NotionSettingsSection
 import com.jongsun.runcal.widget.RunCalCalendarWidgetProvider
 import com.jongsun.runcal.widget.RunCalMonthlyCompactWidgetProvider
@@ -175,6 +176,11 @@ fun SettingsScreen(viewModel: CalendarViewModel, modifier: Modifier = Modifier) 
         item {
             HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
             NotionSettingsSection(viewModel = viewModel)
+        }
+
+        item {
+            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+            ReminderSettingsSection(viewModel = viewModel)
         }
 
         item {

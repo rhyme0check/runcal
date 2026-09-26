@@ -8,6 +8,7 @@ import android.provider.CalendarContract
 import android.util.Log
 import com.jongsun.runcal.data.hasCalendarReadPermission
 import com.jongsun.runcal.widget.RunCalWidgetRenderer
+import com.jongsun.runcal.work.WorkScheduler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -41,6 +42,9 @@ object CalendarObserverManager {
                         Log.e(TAG, "CalendarObserverManager: widget update failed", e)
                     }
                 }
+                // 다른 앱(삼성 캘린더 등)이 만든/바꾼 일정도 알람 대상이라, 위젯 갱신과 별개로
+                // 재동기화를 예약한다 — WorkManager 작업이라 여기서 곧장 실행하지 않는다.
+                WorkScheduler.triggerReminderResyncNow(appContext)
             }
         }
 

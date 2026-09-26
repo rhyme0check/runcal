@@ -76,13 +76,13 @@ import java.time.ZoneId
 import java.time.ZoneOffset
 import kotlinx.coroutines.launch
 
-private val REMINDER_PRESET_MINUTES = listOf(0, 5, 10, 15, 30, 60, 120, 1440)
+val REMINDER_PRESET_MINUTES = listOf(0, 5, 10, 15, 30, 60, 120, 1440)
 private const val MAX_REMINDERS = 5
 
 /** 반복 일정 수정/삭제 시 사용자가 고르는 3택 범위. */
 private enum class RecurrenceEditScope { THIS_ONLY, THIS_AND_FOLLOWING, ALL }
 
-private fun reminderLabel(minutes: Int): String = when {
+fun reminderLabel(minutes: Int): String = when {
     minutes == 0 -> "정시"
     minutes < 60 -> "${minutes}분 전"
     minutes < 1440 -> "${minutes / 60}시간 전"
@@ -227,7 +227,11 @@ private fun EventEditContent(
     var location by remember { mutableStateOf(existing?.location ?: "") }
     var description by remember { mutableStateOf(existing?.description ?: "") }
     var selectedCalendarId by remember { mutableStateOf(existing?.calendarId ?: writableCalendars.firstOrNull()?.id) }
-    var reminderMinutes by remember { mutableStateOf<List<Int>>(emptyList()) }
+    // 새 일정만 기본 알림을 미리 채운다 — 기존 일정은 항상 아래 LaunchedEffect가 저장된 값으로 덮어쓴다.
+    val defaultReminderMinutes by viewModel.defaultReminderMinutes.collectAsStateWithLifecycle()
+    var reminderMinutes by remember {
+        mutableStateOf(if (existing == null) defaultReminderMinutes?.let { listOf(it) } ?: emptyList() else emptyList())
+    }
     var recurrenceRule by remember { mutableStateOf(parseRRule(existing?.rrule)) }
     var showReminderMenu by remember { mutableStateOf(false) }
     var showFrequencyMenu by remember { mutableStateOf(false) }
