@@ -65,6 +65,20 @@ private val DAY_SLOT_IDS = intArrayOf(
  * 바로 호출하므로, 이 함수가 반환하면 위젯 화면은 이미 갱신된 상태다(진단/실측은 호출부의
  * elapsed 로그로 확인한다). 위젯 종류는 appWidgetId → provider 컴포넌트로 역조회한다
  * ([WidgetKind.forAppWidgetId]) — 호출부(액션 리시버/피커 액티비티)는 종류를 몰라도 된다.
+ *
+ * ## 성능 목표 (2026-09-26 실측 후 확정 — 최초 목표였던 웜 200ms/콜드 400ms에서 현실화)
+ * click→update **웜 350ms 이내, 콜드 800ms 이내**. 앱 코드가 통제 가능한 구간(설정 로드,
+ * 색상 스타일 해석, presets 저장)은 프로세스 메모리 캐시로 대부분 0~수ms까지 줄였다
+ * ([EventColorStyleCache], [WidgetPrefsStore]의 settingsCache, [applyNavigationState]).
+ * 남은 비용은 의도적으로 캐싱하지 않은 두 곳이다:
+ * - `calendar` 구간(CalendarContract.Instances 크로스 프로세스 IPC, 실측 33~230ms) — 캐싱하면
+ *   다른 앱이 만든 일정 변경을 놓치게 되므로 캐싱하지 않기로 결정했다.
+ * - `viewBuild` 구간(RemoteViews 다중 뷰 생성, 실측 45~100ms) — 비트맵 렌더링으로 바꾸면
+ *   더 빨라지겠지만 텍스트 품질·테마 전환·탭 영역 관리 비용이 이득보다 크다고 판단해 보류했다.
+ *
+ * 아래 renderMonthly의 구간별 perf 로그(Log.d, "renderMonthly perf ...")는 **지우지 말 것** —
+ * 이후 기능을 더할 때 이 목표를 넘는 회귀가 생기면 이 로그로 바로 어느 구간 탓인지 잡아낸다.
+ * 어떤 작업이든 이 목표(웜 350ms/콜드 800ms)를 넘기면 즉시 보고한다.
  */
 object RunCalWidgetRenderer {
 

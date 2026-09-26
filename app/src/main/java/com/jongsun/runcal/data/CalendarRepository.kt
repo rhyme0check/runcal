@@ -64,6 +64,7 @@ class CalendarRepository(private val context: Context) : EventSource {
                 CalendarContract.Calendars._ID,
                 CalendarContract.Calendars.CALENDAR_DISPLAY_NAME,
                 CalendarContract.Calendars.ACCOUNT_NAME,
+                CalendarContract.Calendars.ACCOUNT_TYPE,
                 CalendarContract.Calendars.CALENDAR_COLOR,
                 CalendarContract.Calendars.VISIBLE,
                 CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL,
@@ -73,6 +74,7 @@ class CalendarRepository(private val context: Context) : EventSource {
                 val idIdx = cursor.getColumnIndexOrThrow(CalendarContract.Calendars._ID)
                 val nameIdx = cursor.getColumnIndexOrThrow(CalendarContract.Calendars.CALENDAR_DISPLAY_NAME)
                 val accountIdx = cursor.getColumnIndexOrThrow(CalendarContract.Calendars.ACCOUNT_NAME)
+                val accountTypeIdx = cursor.getColumnIndexOrThrow(CalendarContract.Calendars.ACCOUNT_TYPE)
                 val colorIdx = cursor.getColumnIndexOrThrow(CalendarContract.Calendars.CALENDAR_COLOR)
                 val visibleIdx = cursor.getColumnIndexOrThrow(CalendarContract.Calendars.VISIBLE)
                 val accessLevelIdx = cursor.getColumnIndexOrThrow(CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL)
@@ -84,6 +86,7 @@ class CalendarRepository(private val context: Context) : EventSource {
                         color = cursor.getInt(colorIdx),
                         visible = cursor.getInt(visibleIdx) != 0,
                         isWritable = cursor.getInt(accessLevelIdx) >= CalendarContract.Calendars.CAL_ACCESS_CONTRIBUTOR,
+                        accountType = cursor.getString(accountTypeIdx).orEmpty(),
                     )
                 }
             }

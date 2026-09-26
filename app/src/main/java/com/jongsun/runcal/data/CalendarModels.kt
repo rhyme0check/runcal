@@ -12,6 +12,10 @@ data class CalendarInfo(
     // 편집 화면의 "소속 캘린더" 선택지를 여기서 걸러서, 쓰기 실패로 이어질 읽기 전용 캘린더를
     // 애초에 고를 수 없게 한다.
     val isWritable: Boolean = true,
+    // CalendarContract.Calendars.ACCOUNT_TYPE. ACCOUNT_TYPE_LOCAL(동기화 어댑터 없음)인
+    // 캘린더는 실측으로 확인된 CalendarProvider 결함 때문에 반복 일정 예외("이번만") 처리 시
+    // 예외 이전 회차가 사라진다 — 편집 화면이 이 값으로 "이번만" 옵션을 감춘다.
+    val accountType: String = "",
 )
 
 data class EventItem(

@@ -247,6 +247,10 @@ private fun EventEditContent(
     // 전부 이 회차의 원래 시각(existing.begin/end)을 기준으로 동작해야 하기 때문이다. "전체"
     // 범위를 선택했을 때만 마스터의 진짜 시작 시각을 다시 읽어(getEventDetail) 델타를 계산한다.
     val isRecurring = !existing?.rrule.isNullOrBlank()
+    // 실측으로 확인된 결함: ACCOUNT_TYPE_LOCAL(동기화 어댑터 없는) 캘린더는 반복 예외를 하나라도
+    // 만들면 그 예외보다 앞선 회차들이 Instances 조회에서 사라진다(구글 계정 등 동기화 캘린더는
+    // 정상). "이번만"은 이 결함을 그대로 노출하므로 로컬 캘린더에서는 선택지 자체를 감춘다.
+    val isLocalCalendar = calendars.find { it.id == existing?.calendarId }?.accountType == android.provider.CalendarContract.ACCOUNT_TYPE_LOCAL
 
     LaunchedEffect(existing?.id) {
         if (existing != null) reminderMinutes = viewModel.getReminders(existing.id)
@@ -703,6 +707,7 @@ private fun EventEditContent(
     if (showSaveScopeDialog) {
         RecurrenceScopeDialog(
             actionLabel = "수정",
+            showThisOnly = !isLocalCalendar,
             onDismiss = { showSaveScopeDialog = false },
             onSelect = { editScope ->
                 showSaveScopeDialog = false
@@ -721,6 +726,7 @@ private fun EventEditContent(
     if (showDeleteScopeDialog) {
         RecurrenceScopeDialog(
             actionLabel = "삭제",
+            showThisOnly = !isLocalCalendar,
             onDismiss = { showDeleteScopeDialog = false },
             onSelect = { editScope ->
                 showDeleteScopeDialog = false
@@ -733,16 +739,36 @@ private fun EventEditContent(
     }
 }
 
-/** "이번만 / 이후 전체 / 전체" 3택 — 반복 일정 수정·삭제 공용. */
+/**
+ * "이번만 / 이후 전체 / 전체" 3택 — 반복 일정 수정·삭제 공용. [showThisOnly]가 false면 "이번만"을
+ * 아예 감추고 그 이유를 안내한다 — 동기화 어댑터가 없는(ACCOUNT_TYPE_LOCAL) 캘린더는 예외를
+ * 만들면 그 이전 회차가 사라지는 CalendarProvider 결함이 실측으로 확인됐다(구글 계정 등 동기화
+ * 캘린더는 정상 동작).
+ */
 @Composable
-private fun RecurrenceScopeDialog(actionLabel: String, onDismiss: () -> Unit, onSelect: (RecurrenceEditScope) -> Unit) {
+private fun RecurrenceScopeDialog(
+    actionLabel: String,
+    showThisOnly: Boolean,
+    onDismiss: () -> Unit,
+    onSelect: (RecurrenceEditScope) -> Unit,
+) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("반복 일정 $actionLabel") },
         text = {
             Column {
-                TextButton(onClick = { onSelect(RecurrenceEditScope.THIS_ONLY) }, modifier = Modifier.fillMaxWidth()) {
-                    Text("이번만", modifier = Modifier.fillMaxWidth())
+                if (showThisOnly) {
+                    TextButton(onClick = { onSelect(RecurrenceEditScope.THIS_ONLY) }, modifier = Modifier.fillMaxWidth()) {
+                        Text("이번만", modifier = Modifier.fillMaxWidth())
+                    }
+                } else {
+                    Text(
+                        text = "이 캘린더는 기기 안에만 있는(동기화 안 되는) 캘린더라 \"이번만\"은 지원하지 않습니다. " +
+                            "\"이후 전체\" 또는 \"전체\"를 선택해주세요.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(bottom = 8.dp),
+                    )
                 }
                 TextButton(onClick = { onSelect(RecurrenceEditScope.THIS_AND_FOLLOWING) }, modifier = Modifier.fillMaxWidth()) {
                     Text("이후 전체", modifier = Modifier.fillMaxWidth())
