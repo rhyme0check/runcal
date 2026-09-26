@@ -48,7 +48,7 @@ sealed interface DeepLinkTarget {
     data class Day(val date: LocalDate) : DeepLinkTarget
     data class Month(val yearMonth: YearMonth) : DeepLinkTarget
     /** 알림 탭 전용 — 날짜로 이동하는 데서 그치지 않고 그 일정의 상세(편집) 다이얼로그까지 연다. */
-    data class Event(val eventId: Long, val date: LocalDate) : DeepLinkTarget
+    data class Event(val eventId: Long, val date: LocalDate, val occurrenceBeginMillis: Long?) : DeepLinkTarget
 }
 
 class MainActivity : ComponentActivity() {
@@ -87,11 +87,15 @@ class MainActivity : ComponentActivity() {
         /** 알림을 탭했을 때 전달되는 대상 일정의 CalendarContract 이벤트 id. */
         const val EXTRA_TARGET_EVENT_ID = "com.jongsun.runcal.EXTRA_TARGET_EVENT_ID"
 
+        /** 알림이 가리키는 반복 일정의 특정 회차 시작 시각(ms). */
+        const val EXTRA_TARGET_INSTANCE_BEGIN_MILLIS = "com.jongsun.runcal.EXTRA_TARGET_INSTANCE_BEGIN_MILLIS"
+
         private fun extractDeepLinkTarget(intent: Intent?): DeepLinkTarget? {
             val eventId = intent?.getLongExtra(EXTRA_TARGET_EVENT_ID, -1L) ?: -1L
             val epochDay = intent?.getLongExtra(EXTRA_TARGET_DATE_EPOCH_DAY, Long.MIN_VALUE) ?: Long.MIN_VALUE
             if (eventId > 0 && epochDay != Long.MIN_VALUE) {
-                return DeepLinkTarget.Event(eventId, LocalDate.ofEpochDay(epochDay))
+                val occurrenceBegin = intent?.getLongExtra(EXTRA_TARGET_INSTANCE_BEGIN_MILLIS, -1L)?.takeIf { it > 0 }
+                return DeepLinkTarget.Event(eventId, LocalDate.ofEpochDay(epochDay), occurrenceBegin)
             }
             if (epochDay != Long.MIN_VALUE) {
                 return DeepLinkTarget.Day(LocalDate.ofEpochDay(epochDay))

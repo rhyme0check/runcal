@@ -39,6 +39,7 @@ fun DailyScreen(
     viewModel: CalendarViewModel,
     modifier: Modifier = Modifier,
     autoOpenEventId: Long? = null,
+    autoOpenOccurrenceBegin: Long? = null,
     onAutoOpenEventConsumed: () -> Unit = {},
 ) {
     val selectedDate by viewModel.selectedDate.collectAsStateWithLifecycle()
@@ -54,7 +55,14 @@ fun DailyScreen(
     LaunchedEffect(autoOpenEventId) {
         val id = autoOpenEventId ?: return@LaunchedEffect
         val detail = viewModel.getEventDetail(id)
-        if (detail != null) editingEvent = detail
+        if (detail != null) {
+            // 반복 일정은 마스터의 시작/종료가 아니라 알림이 가리킨 회차의 시각으로 열어야 한다.
+            editingEvent = if (autoOpenOccurrenceBegin != null && autoOpenOccurrenceBegin != detail.begin) {
+                detail.copy(begin = autoOpenOccurrenceBegin, end = autoOpenOccurrenceBegin + (detail.end - detail.begin))
+            } else {
+                detail
+            }
+        }
         onAutoOpenEventConsumed()
     }
 

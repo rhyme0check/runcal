@@ -1,18 +1,19 @@
 package com.jongsun.runcal.notification
 
-import android.app.AlarmManager
-import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
+import android.util.Log
 import androidx.core.app.NotificationManagerCompat
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 /**
- * 알림의 "N분 후 다시" 액션. 원래 스케줄(ReminderScheduler가 관리하는 정식 알람)은 건드리지 않고,
- * 지금 뜬 알림만 지운 뒤 지금+N분에 딱 한 번 울릴 별도의 1회성 알람을 건다 — 다음 재동기화 때
- * 사라져도 상관없는 임시 알람이라 Room 장부에는 기록하지 않는다.
+ * 알림의 "N분 후 다시" 액션. 정식 스케줄은 건드리지 않고, 지금 뜬 알림을 지운 뒤 지금+N분에 한 번
+ * 울릴 스누즈 알람을 건다. 스누즈는 Room 장부에 기록되어 재부팅 후에도 복원된다(ReminderScheduler.resync).
  */
 class ReminderSnoozeReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -25,25 +26,18 @@ class ReminderSnoozeReceiver : BroadcastReceiver() {
 
         NotificationManagerCompat.from(context).cancel(notificationId)
 
-        val alarmManager = context.getSystemService(AlarmManager::class.java) ?: return
         if (!canScheduleExactAlarms(context)) return
         val triggerAtMillis = System.currentTimeMillis() + TimeUnit.MINUTES.toMillis(snoozeMinutes.toLong())
-        val snoozeIntent = Intent(context, ReminderAlarmReceiver::class.java).apply {
-            data = Uri.parse("runcal://reminder/snoozed/$eventId/$occurrenceBeginMillis/$reminderMinutes/$snoozeMinutes")
-            putExtra(EXTRA_EVENT_ID, eventId)
-            putExtra(EXTRA_OCCURRENCE_BEGIN_MILLIS, occurrenceBeginMillis)
-            putExtra(EXTRA_REMINDER_MINUTES, reminderMinutes)
-        }
-        val pendingIntent = PendingIntent.getBroadcast(
-            context,
-            notificationId,
-            snoozeIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-        try {
-            alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
-        } catch (e: SecurityException) {
-            // 권한이 그 사이 철회됐다면 조용히 무시 — 다음 정식 재동기화가 상태를 바로잡는다.
+
+        val pendingResult = goAsync()
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            try {
+                ReminderScheduler.scheduleSnooze(context, eventId, occurrenceBeginMillis, reminderMinutes, triggerAtMillis)
+            } catch (e: Exception) {
+                Log.e("RunCal", "ReminderSnoozeReceiver: failed to schedule snooze for event=$eventId", e)
+            } finally {
+                pendingResult.finish()
+            }
         }
     }
 }

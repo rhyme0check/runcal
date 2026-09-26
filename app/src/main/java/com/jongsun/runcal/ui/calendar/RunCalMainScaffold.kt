@@ -59,6 +59,7 @@ fun RunCalMainScaffold(
     var selectedTab by rememberSaveable { mutableStateOf(RunCalTab.MONTHLY) }
     var showMonthPicker by remember { mutableStateOf(false) }
     var autoOpenEventId by remember { mutableStateOf<Long?>(null) }
+    var autoOpenOccurrenceBegin by remember { mutableStateOf<Long?>(null) }
 
     LaunchedEffect(pendingDeepLinkTarget) {
         when (val target = pendingDeepLinkTarget) {
@@ -75,6 +76,7 @@ fun RunCalMainScaffold(
             is DeepLinkTarget.Event -> {
                 viewModel.selectDate(target.date)
                 selectedTab = RunCalTab.DAILY
+                autoOpenOccurrenceBegin = target.occurrenceBeginMillis
                 autoOpenEventId = target.eventId
                 onDeepLinkConsumed()
             }
@@ -156,6 +158,7 @@ fun RunCalMainScaffold(
                     RunCalTab.DAILY -> DailyScreen(
                         viewModel = viewModel,
                         autoOpenEventId = autoOpenEventId,
+                        autoOpenOccurrenceBegin = autoOpenOccurrenceBegin,
                         onAutoOpenEventConsumed = { autoOpenEventId = null },
                     )
                     RunCalTab.LIST -> ListScreen(

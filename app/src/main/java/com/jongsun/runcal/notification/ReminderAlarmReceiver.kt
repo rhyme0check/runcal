@@ -37,6 +37,9 @@ class ReminderAlarmReceiver : BroadcastReceiver() {
         val pendingResult = goAsync()
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             try {
+                if (intent.data?.pathSegments?.firstOrNull() == "snoozed") {
+                    ReminderScheduler.clearSnooze(context, eventId, occurrenceBeginMillis, reminderMinutes)
+                }
                 showNotification(context, eventId, occurrenceBeginMillis, reminderMinutes)
             } catch (e: Exception) {
                 Log.e(TAG, "ReminderAlarmReceiver: failed to show notification for event=$eventId", e)
@@ -64,6 +67,7 @@ class ReminderAlarmReceiver : BroadcastReceiver() {
             data = Uri.parse("runcal://reminder/open/$eventId/$occurrenceBeginMillis")
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra(MainActivity.EXTRA_TARGET_EVENT_ID, eventId)
+            putExtra(MainActivity.EXTRA_TARGET_INSTANCE_BEGIN_MILLIS, occurrenceBeginMillis)
             putExtra(MainActivity.EXTRA_TARGET_DATE_EPOCH_DAY, Instant.ofEpochMilli(occurrenceBeginMillis).atZone(zone).toLocalDate().toEpochDay())
         }
         val contentPendingIntent = PendingIntent.getActivity(
