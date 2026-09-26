@@ -1,6 +1,7 @@
 package com.jongsun.runcal
 
 import android.app.Application
+import com.jongsun.runcal.ai.syncAssistantShortcut
 import com.jongsun.runcal.notification.ensureReminderNotificationChannel
 import com.jongsun.runcal.work.WorkScheduler
 
@@ -21,6 +22,7 @@ class RunCalApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         ensureReminderNotificationChannel(this)
+        syncAssistantShortcut(this)
         WorkScheduler.scheduleAll(this)
     }
 }

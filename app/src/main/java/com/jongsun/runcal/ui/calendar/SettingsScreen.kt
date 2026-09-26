@@ -64,6 +64,8 @@ import com.jongsun.runcal.export.WeeklyExportDialog
 import com.jongsun.runcal.ui.backup.BackupSettingsSection
 import com.jongsun.runcal.ui.notification.ReminderSettingsSection
 import com.jongsun.runcal.ui.notion.NotionSettingsSection
+import com.jongsun.runcal.ui.assistant.AiSettingsSection
+import com.jongsun.runcal.ui.assistant.AssistantViewModel
 import com.jongsun.runcal.ui.special.SpecialDaySettingsSection
 import com.jongsun.runcal.widget.RunCalCalendarWidgetProvider
 import com.jongsun.runcal.widget.RunCalMonthlyCompactWidgetProvider
@@ -78,7 +80,7 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
 @Composable
-fun SettingsScreen(viewModel: CalendarViewModel, modifier: Modifier = Modifier) {
+fun SettingsScreen(viewModel: CalendarViewModel, assistantViewModel: AssistantViewModel, modifier: Modifier = Modifier) {
     val calendars by viewModel.calendars.collectAsStateWithLifecycle()
     val visibleCalendarIds by viewModel.visibleCalendarIds.collectAsStateWithLifecycle()
     val weekStartDay by viewModel.weekStartDay.collectAsStateWithLifecycle()
@@ -187,6 +189,11 @@ fun SettingsScreen(viewModel: CalendarViewModel, modifier: Modifier = Modifier) 
         item {
             HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
             SpecialDaySettingsSection(viewModel = viewModel)
+        }
+
+        item {
+            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+            AiSettingsSection(assistant = assistantViewModel)
         }
 
         item {

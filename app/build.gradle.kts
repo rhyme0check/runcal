@@ -39,6 +39,12 @@ android {
             "DATA_GO_KR_API_KEY",
             "\"${localProperties.getProperty("DATA_GO_KR_API_KEY", "")}\"",
         )
+        // Gemini API 키(자연어 명령). 이 APK는 개인용이라는 전제로 BuildConfig에 굽는다.
+        buildConfigField(
+            "String",
+            "GEMINI_API_KEY",
+            "\"${localProperties.getProperty("GEMINI_API_KEY", "")}\"",
+        )
         // Google Cloud Console에서 만든 "Web application" 타입 OAuth 클라이언트 ID.
         // Credential Manager의 GetSignInWithGoogleOption(serverClientId=...)에 필요하다 —
         // Android 클라이언트 ID가 아니라 반드시 Web 클라이언트 ID를 써야 한다.

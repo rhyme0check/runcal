@@ -49,6 +49,9 @@ sealed interface DeepLinkTarget {
     data class Month(val yearMonth: YearMonth) : DeepLinkTarget
     /** 알림 탭 전용 — 날짜로 이동하는 데서 그치지 않고 그 일정의 상세(편집) 다이얼로그까지 연다. */
     data class Event(val eventId: Long, val date: LocalDate, val occurrenceBeginMillis: Long?) : DeepLinkTarget
+
+    /** 앱 바로가기 — AI 명령 화면을 연다. [debugPrompt]는 디버그 빌드에서만 채워지는 테스트용 자동 입력. */
+    data class Assistant(val debugPrompt: String?) : DeepLinkTarget
 }
 
 class MainActivity : ComponentActivity() {
@@ -90,7 +93,16 @@ class MainActivity : ComponentActivity() {
         /** 알림이 가리키는 반복 일정의 특정 회차 시작 시각(ms). */
         const val EXTRA_TARGET_INSTANCE_BEGIN_MILLIS = "com.jongsun.runcal.EXTRA_TARGET_INSTANCE_BEGIN_MILLIS"
 
+        /** 앱 바로가기("자연어 명령")가 AI 화면을 열 때 붙이는 플래그. */
+        const val EXTRA_OPEN_ASSISTANT = "com.jongsun.runcal.EXTRA_OPEN_ASSISTANT"
+
+        /** 디버그 빌드 전용: 화면을 연 뒤 이 문장을 자동으로 보낸다(에뮬레이터에서 한글 입력이 어려워 검증용). */
+        const val EXTRA_DEBUG_AI_PROMPT = "com.jongsun.runcal.EXTRA_DEBUG_AI_PROMPT"
+
         private fun extractDeepLinkTarget(intent: Intent?): DeepLinkTarget? {
+            if (intent?.getBooleanExtra(EXTRA_OPEN_ASSISTANT, false) == true) {
+                return DeepLinkTarget.Assistant(if (BuildConfig.DEBUG) intent.getStringExtra(EXTRA_DEBUG_AI_PROMPT) else null)
+            }
             val eventId = intent?.getLongExtra(EXTRA_TARGET_EVENT_ID, -1L) ?: -1L
             val epochDay = intent?.getLongExtra(EXTRA_TARGET_DATE_EPOCH_DAY, Long.MIN_VALUE) ?: Long.MIN_VALUE
             if (eventId > 0 && epochDay != Long.MIN_VALUE) {

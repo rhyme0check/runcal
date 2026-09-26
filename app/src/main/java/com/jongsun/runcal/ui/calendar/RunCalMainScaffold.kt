@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.List
@@ -27,11 +28,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.jongsun.runcal.DeepLinkTarget
+import com.jongsun.runcal.ai.AiPrefs
+import com.jongsun.runcal.ai.aiKeyPresent
+import com.jongsun.runcal.ui.assistant.AssistantScreen
+import com.jongsun.runcal.ui.assistant.AssistantViewModel
 
 enum class RunCalTab {
     MONTHLY,
@@ -58,6 +64,13 @@ fun RunCalMainScaffold(
     val viewModel: CalendarViewModel = viewModel()
     var selectedTab by rememberSaveable { mutableStateOf(RunCalTab.MONTHLY) }
     var showMonthPicker by remember { mutableStateOf(false) }
+    // AI 자연어 명령: 키가 있고 사용자가 설정에서 켰을 때만 ✨ 아이콘/화면이 나타난다(기본 꺼짐).
+    val context = LocalContext.current
+    val aiSettings by AiPrefs.state(context).collectAsStateWithLifecycle()
+    val aiAvailable = aiSettings.enabled && aiKeyPresent()
+    val assistantViewModel: AssistantViewModel = viewModel()
+    var showAssistant by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(aiAvailable) { if (!aiAvailable) showAssistant = false }
     var autoOpenEventId by remember { mutableStateOf<Long?>(null) }
     var autoOpenOccurrenceBegin by remember { mutableStateOf<Long?>(null) }
 
@@ -66,6 +79,14 @@ fun RunCalMainScaffold(
             is DeepLinkTarget.Day -> {
                 viewModel.selectDate(target.date)
                 selectedTab = RunCalTab.DAILY
+                onDeepLinkConsumed()
+            }
+            is DeepLinkTarget.Assistant -> {
+                // AI를 꺼뒀거나 키가 없으면 무시한다(바로가기도 그때는 등록되지 않는다).
+                if (aiAvailable) {
+                    showAssistant = true
+                    target.debugPrompt?.let { assistantViewModel.send(it, viewModel) }
+                }
                 onDeepLinkConsumed()
             }
             is DeepLinkTarget.Month -> {
@@ -97,8 +118,9 @@ fun RunCalMainScaffold(
     }
 
     CompositionLocalProvider(LocalDensity provides scaledDensity) {
+        Box(modifier = modifier.fillMaxSize()) {
         Scaffold(
-            modifier = modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize(),
             topBar = {
                 TopAppBar(
                     title = {
@@ -112,6 +134,11 @@ fun RunCalMainScaffold(
                         )
                     },
                     actions = {
+                        if (aiAvailable && (selectedTab == RunCalTab.MONTHLY || selectedTab == RunCalTab.DAILY)) {
+                            IconButton(onClick = { showAssistant = true }) {
+                                Icon(Icons.Default.AutoAwesome, contentDescription = "AI 명령")
+                            }
+                        }
                         if (selectedTab == RunCalTab.MONTHLY || selectedTab == RunCalTab.DAILY) {
                             IconButton(onClick = { viewModel.requestJumpToday() }) {
                                 Icon(Icons.Default.Today, contentDescription = "오늘로 이동")
@@ -168,9 +195,17 @@ fun RunCalMainScaffold(
                             selectedTab = RunCalTab.DAILY
                         },
                     )
-                    RunCalTab.SETTINGS -> SettingsScreen(viewModel)
+                    RunCalTab.SETTINGS -> SettingsScreen(viewModel, assistantViewModel)
                 }
             }
+        }
+        if (showAssistant && aiAvailable) {
+            AssistantScreen(
+                assistant = assistantViewModel,
+                calendarViewModel = viewModel,
+                onClose = { showAssistant = false },
+            )
+        }
         }
     }
 

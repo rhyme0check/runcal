@@ -7,5 +7,6 @@
 -->
 <full-backup-content>
     <exclude domain="file" path="backups/" />
+    <exclude domain="file" path="assistant/" />
     <exclude domain="database" path="runcal_database" />
 </full-backup-content>
