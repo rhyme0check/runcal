@@ -1,7 +1,9 @@
 package com.jongsun.runcal.data
 
 import java.time.DayOfWeek
+import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 
 enum class RecurrenceFrequency { NONE, DAILY, WEEKLY, MONTHLY, YEARLY }
@@ -27,6 +29,7 @@ private val WEEKDAY_CODES = mapOf(
 )
 private val CODE_TO_WEEKDAY = WEEKDAY_CODES.entries.associate { (day, code) -> code to day }
 private val UNTIL_DATE_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd")
+private val UNTIL_DATETIME_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss'Z'").withZone(ZoneOffset.UTC)
 
 /**
  * [date]가 그 달에서 몇 번째 같은 요일인지 계산한다("매월 셋째 화요일" 라벨/RRULE의 BYDAY 순번에 쓴다).
@@ -129,4 +132,30 @@ fun parseRRule(rrule: String?): RecurrenceRule {
         count = count,
         untilDate = untilDate,
     )
+}
+
+/**
+ * "이후 전체" 수정/삭제 전용. [currentRrule]을 [splitInstanceBeginMillis] 회차 바로 직전에서 끊어
+ * 새 UNTIL로 교체한다(원래 COUNT/UNTIL이 뭐였든 상관없이 실제 마지막으로 남을 회차 시각으로
+ * 다시 계산하므로 결과가 항상 정확하다). off-by-one 방지: 종일 일정은 분할 회차의 전날 날짜를
+ * UNTIL로 쓰고(DATE 형식은 그 날 전체를 포함하므로), 시간이 있는 일정은 분할 순간의 1초 전을
+ * UTC로 써서 분할 회차 자신만 정확히 제외한다 — 두 경우 모두 실제 반복 간격(최소 하루)보다
+ * 훨씬 작은 여유라 바로 이전 회차를 실수로 함께 잘라낼 위험이 없다.
+ */
+fun truncateRRuleBefore(currentRrule: String, splitInstanceBeginMillis: Long, allDay: Boolean): String {
+    val fields = currentRrule.split(";").mapNotNull { part ->
+        val idx = part.indexOf('=')
+        if (idx < 0) null else part.substring(0, idx) to part.substring(idx + 1)
+    }.toMap().toMutableMap()
+
+    fields.remove("COUNT")
+    fields["UNTIL"] = if (allDay) {
+        Instant.ofEpochMilli(splitInstanceBeginMillis).atZone(ZoneOffset.UTC).toLocalDate().minusDays(1).format(UNTIL_DATE_FORMAT)
+    } else {
+        UNTIL_DATETIME_FORMAT.format(Instant.ofEpochMilli(splitInstanceBeginMillis - 1000))
+    }
+
+    val freq = fields.remove("FREQ")
+    val ordered = listOfNotNull(freq?.let { "FREQ=$it" }) + fields.map { (key, value) -> "$key=$value" }
+    return ordered.joinToString(";")
 }

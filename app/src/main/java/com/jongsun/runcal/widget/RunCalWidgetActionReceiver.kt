@@ -30,6 +30,7 @@ class RunCalWidgetActionReceiver : BroadcastReceiver() {
         val pendingResult = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {
+                Log.d(TAG, "dispatch: appWidgetId=$appWidgetId coroutine started after ${System.currentTimeMillis() - tapAtMillis}ms")
                 withTimeout(5_000) {
                     when (action) {
                         WidgetActionContract.ACTION_NAV_PREV -> shiftMonth(context, appWidgetId, -1)
@@ -54,18 +55,18 @@ class RunCalWidgetActionReceiver : BroadcastReceiver() {
     }
 
     private suspend fun shiftMonth(context: Context, appWidgetId: Int, direction: Int) {
-        applyWidgetState(context, appWidgetId) { current ->
-            val base = current.viewingYearMonth ?: YearMonth.now()
+        applyNavigationState(context, appWidgetId) { currentViewing ->
+            val base = currentViewing ?: YearMonth.now()
             val next = if (direction > 0) base.plusMonths(1) else base.minusMonths(1)
-            Log.d(TAG, "arrow: id=$appWidgetId before=${current.viewingYearMonth} after=$next")
-            current.copy(viewingYearMonth = next, lastNavigatedAtMillis = System.currentTimeMillis())
+            Log.d(TAG, "arrow: id=$appWidgetId before=$currentViewing after=$next")
+            next to System.currentTimeMillis()
         }
     }
 
     private suspend fun jumpToday(context: Context, appWidgetId: Int) {
-        applyWidgetState(context, appWidgetId) { current ->
-            Log.d(TAG, "jumpToToday: id=$appWidgetId before=${current.viewingYearMonth}")
-            current.copy(viewingYearMonth = null, lastNavigatedAtMillis = System.currentTimeMillis())
+        applyNavigationState(context, appWidgetId) { currentViewing ->
+            Log.d(TAG, "jumpToToday: id=$appWidgetId before=$currentViewing")
+            null to System.currentTimeMillis()
         }
     }
 }

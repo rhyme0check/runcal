@@ -153,6 +153,7 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
      */
     suspend fun setEventColorStyle(sourceKey: String, paletteKey: String?, bold: Boolean) {
         db.eventColorStyleDao().upsert(EventColorStyleEntity(sourceKey, paletteKey, bold))
+        com.jongsun.runcal.widget.EventColorStyleCache.invalidate()
         refreshEventColorStyles()
         RunCalWidgetRenderer.updateAllWidgets(getApplication())
     }
@@ -293,11 +294,96 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
     suspend fun getReminders(eventId: Long): List<Int> = repository.getReminders(eventId)
 
     /**
-     * 반복 규칙 복원 전용. Instances 조회로 얻은 [EventItem]의 begin/end는 탭한 그 회차의
-     * 시각이라 마스터 이벤트의 원래 DTSTART/DURATION과 다를 수 있다 — 반복 일정을 열었을 때
-     * 편집 폼을 정확한 시작 시각/기간으로 채우려면 원본 Events 행을 다시 읽어야 한다.
+     * "전체" 범위 수정 전용. Instances 조회로 얻은 [EventItem]의 begin/end는 탭한 그 회차의
+     * 시각이라 마스터의 진짜 DTSTART/DURATION과 다를 수 있다 — 시리즈 전체를 시간 이동시킬 때
+     * (탭한 회차의 새 시각 - 원래 시각)만큼 마스터의 진짜 시작 시각에 델타를 더해야 하므로,
+     * 그 델타 계산의 기준값을 여기서 원본 Events 행을 다시 읽어 제공한다.
      */
     suspend fun getEventDetail(eventId: Long): EventItem? = repository.getEventById(eventId)
+
+    /**
+     * "이번만 수정" — 반복 회차 하나만 다른 내용으로 바꾸는 예외 이벤트를 만든다.
+     * [originalInstanceBeginMillis]는 반드시 편집 전(사용자가 손대지 않은) 회차 값이어야 한다 —
+     * CalendarContract가 이 값으로 어느 회차를 대체하는지 찾기 때문이다.
+     */
+    suspend fun createSingleOccurrenceException(
+        masterEventId: Long,
+        originalInstanceBeginMillis: Long,
+        title: String,
+        startMillis: Long,
+        endMillis: Long,
+        allDay: Boolean,
+        location: String,
+        description: String,
+        reminderMinutes: List<Int>,
+    ): Long {
+        val id = repository.createExceptionEvent(
+            masterEventId, originalInstanceBeginMillis, title, startMillis, endMillis, allDay, location, description, reminderMinutes,
+        )
+        if (id > 0) {
+            invalidateCache()
+            ensureMonthLoaded(_visibleYearMonth.value, force = true)
+            RunCalWidgetRenderer.updateAllWidgets(getApplication())
+        }
+        return id
+    }
+
+    /** "이번만 삭제" — 시각은 그대로 두고 해당 회차만 STATUS_CANCELED 예외로 감춘다. */
+    suspend fun deleteSingleOccurrence(masterEventId: Long, originalInstanceBeginMillis: Long): Long {
+        val id = repository.cancelSingleInstance(masterEventId, originalInstanceBeginMillis)
+        if (id > 0) {
+            invalidateCache()
+            ensureMonthLoaded(_visibleYearMonth.value, force = true)
+            RunCalWidgetRenderer.updateAllWidgets(getApplication())
+        }
+        return id
+    }
+
+    /**
+     * "이후 전체 수정" — 원본 시리즈를 [splitInstanceBeginMillis] 회차 직전에서 끊고, 그 회차부터는
+     * (새 내용/새 반복 규칙으로) 새 시리즈를 만든다.
+     */
+    suspend fun updateFollowingOccurrences(
+        masterEventId: Long,
+        masterAllDay: Boolean,
+        masterRrule: String,
+        splitInstanceBeginMillis: Long,
+        calendarId: Long,
+        title: String,
+        startMillis: Long,
+        endMillis: Long,
+        allDay: Boolean,
+        location: String,
+        description: String,
+        reminderMinutes: List<Int>,
+        newRrule: String?,
+    ): Long {
+        val truncated = repository.truncateSeriesBefore(masterEventId, masterRrule, splitInstanceBeginMillis, masterAllDay)
+        if (!truncated) return -1L
+        val newId = repository.createEvent(
+            calendarId, title, startMillis, endMillis, allDay, location, description, reminderMinutes, rrule = newRrule,
+        )
+        invalidateCache()
+        ensureMonthLoaded(_visibleYearMonth.value, force = true)
+        RunCalWidgetRenderer.updateAllWidgets(getApplication())
+        return newId
+    }
+
+    /** "이후 전체 삭제" — 새 시리즈 없이 원본 시리즈를 [splitInstanceBeginMillis] 회차 직전에서 끊기만 한다. */
+    suspend fun deleteFollowingOccurrences(
+        masterEventId: Long,
+        masterAllDay: Boolean,
+        masterRrule: String,
+        splitInstanceBeginMillis: Long,
+    ): Boolean {
+        val truncated = repository.truncateSeriesBefore(masterEventId, masterRrule, splitInstanceBeginMillis, masterAllDay)
+        if (truncated) {
+            invalidateCache()
+            ensureMonthLoaded(_visibleYearMonth.value, force = true)
+            RunCalWidgetRenderer.updateAllWidgets(getApplication())
+        }
+        return truncated
+    }
 
     /** 개발/테스트 도구: 로컬 테스트 캘린더를 만들고 위젯/앱 화면을 모두 갱신한다. */
     suspend fun ensureLocalTestCalendar(): Long {

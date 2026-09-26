@@ -3,6 +3,7 @@ package com.jongsun.runcal.data
 import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
+import android.net.Uri
 import android.provider.CalendarContract
 import android.util.Log
 import com.jongsun.runcal.data.room.LocalEventProvenanceEntity
@@ -281,19 +282,35 @@ class CalendarRepository(private val context: Context) : EventSource {
             return@withContext 0
         }
         try {
+            val changingSchedule = startMillis != null && endMillis != null
+            // 실측으로 확인된 이 기기의 CalendarProvider2 결함: 반복 일정의 DTSTART/DURATION/RRULE을
+            // update()로 바꾸면 값 자체는 저장되지만 이미 계산된 회차 전개(Instances)에는 반영되지
+            // 않는다("전체" 범위 수정이 시리즈 전체를 밀지 못하고 예전 회차가 그대로 남는 식으로
+            // 나타남). 삭제 후 새 값으로 다시 insert하면 항상 정확히 반영되므로, 반복 상태를 바꾸는
+            // 경우(결과가 반복이 되는 경우)에는 이 경로를 쓴다.
+            if (changingSchedule && !rrule.isNullOrBlank()) {
+                val snapshot = readEventRowSnapshot(eventId) ?: return@withContext 0
+                val newId = recreateEvent(
+                    eventId = eventId,
+                    snapshot = snapshot,
+                    title = title ?: snapshot.title,
+                    startMillis = startMillis,
+                    endMillis = endMillis,
+                    allDay = allDay ?: snapshot.allDay,
+                    location = location ?: snapshot.location,
+                    description = description ?: snapshot.description,
+                    reminderMinutes = reminderMinutes ?: getReminders(eventId),
+                    rrule = rrule,
+                )
+                return@withContext if (newId > 0) 1 else 0
+            }
             val values = ContentValues().apply {
                 title?.let { put(CalendarContract.Events.TITLE, it) }
-                if (startMillis != null && endMillis != null) {
+                if (changingSchedule) {
                     put(CalendarContract.Events.DTSTART, startMillis)
-                    if (rrule.isNullOrBlank()) {
-                        put(CalendarContract.Events.DTEND, endMillis)
-                        putNull(CalendarContract.Events.DURATION)
-                        putNull(CalendarContract.Events.RRULE)
-                    } else {
-                        putNull(CalendarContract.Events.DTEND)
-                        put(CalendarContract.Events.DURATION, formatDuration(endMillis - startMillis, allDay ?: false))
-                        put(CalendarContract.Events.RRULE, rrule)
-                    }
+                    put(CalendarContract.Events.DTEND, endMillis)
+                    putNull(CalendarContract.Events.DURATION)
+                    putNull(CalendarContract.Events.RRULE)
                 }
                 allDay?.let { put(CalendarContract.Events.ALL_DAY, if (it) 1 else 0) }
                 location?.let { put(CalendarContract.Events.EVENT_LOCATION, it) }
@@ -312,6 +329,78 @@ class CalendarRepository(private val context: Context) : EventSource {
             Log.e(TAG, "updateEvent failed", e)
             0
         }
+    }
+
+    private data class EventRowSnapshot(
+        val calendarId: Long,
+        val title: String,
+        val allDay: Boolean,
+        val location: String,
+        val description: String,
+        val timeZoneId: String,
+    )
+
+    private fun readEventRowSnapshot(eventId: Long): EventRowSnapshot? {
+        val projection = arrayOf(
+            CalendarContract.Events.CALENDAR_ID,
+            CalendarContract.Events.TITLE,
+            CalendarContract.Events.ALL_DAY,
+            CalendarContract.Events.EVENT_LOCATION,
+            CalendarContract.Events.DESCRIPTION,
+            CalendarContract.Events.EVENT_TIMEZONE,
+        )
+        val uri = ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId)
+        return resolver.query(uri, projection, null, null, null)?.use { cursor ->
+            if (!cursor.moveToFirst()) return@use null
+            EventRowSnapshot(
+                calendarId = cursor.getLong(0),
+                title = cursor.getString(1).orEmpty(),
+                allDay = cursor.getInt(2) != 0,
+                location = cursor.getString(3).orEmpty(),
+                description = cursor.getString(4).orEmpty(),
+                timeZoneId = cursor.getString(5) ?: TimeZone.getDefault().id,
+            )
+        }
+    }
+
+    /** [eventId]를 지우고 같은 내용을 새 RRULE로 다시 만든다 — [updateEvent]/[truncateSeriesBefore]가 함께 쓰는 결함 우회 경로. */
+    private suspend fun recreateEvent(
+        eventId: Long,
+        snapshot: EventRowSnapshot,
+        title: String,
+        startMillis: Long,
+        endMillis: Long,
+        allDay: Boolean,
+        location: String,
+        description: String,
+        reminderMinutes: List<Int>,
+        rrule: String?,
+    ): Long {
+        resolver.delete(ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId), null, null)
+        provenanceDao.deleteByCalendarEventId(eventId)
+
+        val values = ContentValues().apply {
+            put(CalendarContract.Events.CALENDAR_ID, snapshot.calendarId)
+            put(CalendarContract.Events.TITLE, title)
+            put(CalendarContract.Events.DTSTART, startMillis)
+            if (rrule.isNullOrBlank()) {
+                put(CalendarContract.Events.DTEND, endMillis)
+            } else {
+                put(CalendarContract.Events.DURATION, formatDuration(endMillis - startMillis, allDay))
+                put(CalendarContract.Events.RRULE, rrule)
+            }
+            put(CalendarContract.Events.ALL_DAY, if (allDay) 1 else 0)
+            put(CalendarContract.Events.EVENT_TIMEZONE, snapshot.timeZoneId)
+            put(CalendarContract.Events.EVENT_LOCATION, location)
+            put(CalendarContract.Events.DESCRIPTION, description)
+            if (reminderMinutes.isNotEmpty()) put(CalendarContract.Events.HAS_ALARM, 1)
+        }
+        val newId = resolver.insert(CalendarContract.Events.CONTENT_URI, values)?.lastPathSegment?.toLongOrNull() ?: -1L
+        if (newId > 0) {
+            provenanceDao.insert(LocalEventProvenanceEntity(newId, snapshot.calendarId, System.currentTimeMillis()))
+            replaceReminders(newId, reminderMinutes)
+        }
+        return newId
     }
 
     /** 알림은 최대 5개까지만 저장한다(발송 자체는 P4). 전체 삭제 후 다시 넣는 방식이라 항상 요청한 목록과 정확히 일치한다. */
@@ -345,12 +434,27 @@ class CalendarRepository(private val context: Context) : EventSource {
         }
     }
 
+    /** [eventId]가 반복 마스터라면 그 밑에 걸린 예외 회차(ORIGINAL_ID로 참조)부터 지운 뒤 자신을 지운다. */
     suspend fun deleteEvent(eventId: Long): Int = withContext(Dispatchers.IO) {
         if (!hasCalendarWritePermission(context)) {
             Log.e(TAG, "deleteEvent: WRITE_CALENDAR permission not granted")
             return@withContext 0
         }
         try {
+            resolver.query(
+                CalendarContract.Events.CONTENT_URI,
+                arrayOf(CalendarContract.Events._ID),
+                "${CalendarContract.Events.ORIGINAL_ID} = ?",
+                arrayOf(eventId.toString()),
+                null,
+            )?.use { cursor ->
+                val idIdx = cursor.getColumnIndexOrThrow(CalendarContract.Events._ID)
+                while (cursor.moveToNext()) {
+                    val exceptionId = cursor.getLong(idIdx)
+                    resolver.delete(ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, exceptionId), null, null)
+                    provenanceDao.deleteByCalendarEventId(exceptionId)
+                }
+            }
             val uri = ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId)
             val deleted = resolver.delete(uri, null, null)
             if (deleted > 0) provenanceDao.deleteByCalendarEventId(eventId)
@@ -358,6 +462,121 @@ class CalendarRepository(private val context: Context) : EventSource {
         } catch (e: SecurityException) {
             Log.e(TAG, "deleteEvent failed", e)
             0
+        }
+    }
+
+    /**
+     * 반복 일정의 특정 회차 하나만 다른 내용으로 바꾼다("이번만 수정"). CalendarContract가
+     * 공식 제공하는 [CalendarContract.Events.CONTENT_EXCEPTION_URI]를 쓴다 — 이 경로로 넣으면
+     * ORIGINAL_ALL_DAY/CALENDAR_ID를 원본에서 알아서 채워주므로 직접 셋을 필요가 없고(누락 위험이
+     * 구조적으로 사라짐), DTEND 대신 DURATION을 요구한다. [originalInstanceBeginMillis]는 반드시
+     * 편집 전 "원래" 회차 시각이어야 한다(사용자가 시간을 바꿨어도 이 값은 옛 값 그대로).
+     */
+    suspend fun createExceptionEvent(
+        masterEventId: Long,
+        originalInstanceBeginMillis: Long,
+        title: String,
+        startMillis: Long,
+        endMillis: Long,
+        allDay: Boolean,
+        location: String = "",
+        description: String = "",
+        reminderMinutes: List<Int> = emptyList(),
+    ): Long = withContext(Dispatchers.IO) {
+        if (!hasCalendarWritePermission(context)) {
+            Log.e(TAG, "createExceptionEvent: WRITE_CALENDAR permission not granted")
+            return@withContext -1L
+        }
+        try {
+            val exceptionUri = Uri.withAppendedPath(CalendarContract.Events.CONTENT_EXCEPTION_URI, masterEventId.toString())
+            val values = ContentValues().apply {
+                put(CalendarContract.Events.ORIGINAL_INSTANCE_TIME, originalInstanceBeginMillis)
+                put(CalendarContract.Events.TITLE, title)
+                put(CalendarContract.Events.DTSTART, startMillis)
+                put(CalendarContract.Events.DURATION, formatDuration(endMillis - startMillis, allDay))
+                put(CalendarContract.Events.EVENT_LOCATION, location)
+                put(CalendarContract.Events.DESCRIPTION, description)
+                if (reminderMinutes.isNotEmpty()) put(CalendarContract.Events.HAS_ALARM, 1)
+            }
+            val id = resolver.insert(exceptionUri, values)?.lastPathSegment?.toLongOrNull() ?: -1L
+            if (id > 0) {
+                val calendarId = readEventRowSnapshot(masterEventId)?.calendarId
+                if (calendarId != null) provenanceDao.insert(LocalEventProvenanceEntity(id, calendarId, System.currentTimeMillis()))
+                replaceReminders(id, reminderMinutes)
+            }
+            id
+        } catch (e: Exception) {
+            Log.e(TAG, "createExceptionEvent failed", e)
+            -1L
+        }
+    }
+
+    /**
+     * 반복 회차 하나만 삭제 표시하는 예외를 만든다("이번만 삭제") — 같은 CONTENT_EXCEPTION_URI로
+     * STATUS만 STATUS_CANCELED로 넣는다. 시각/제목 등은 건드리지 않고 원본을 그대로 상속한다.
+     */
+    suspend fun cancelSingleInstance(
+        masterEventId: Long,
+        originalInstanceBeginMillis: Long,
+    ): Long = withContext(Dispatchers.IO) {
+        if (!hasCalendarWritePermission(context)) {
+            Log.e(TAG, "cancelSingleInstance: WRITE_CALENDAR permission not granted")
+            return@withContext -1L
+        }
+        try {
+            val exceptionUri = Uri.withAppendedPath(CalendarContract.Events.CONTENT_EXCEPTION_URI, masterEventId.toString())
+            val values = ContentValues().apply {
+                put(CalendarContract.Events.ORIGINAL_INSTANCE_TIME, originalInstanceBeginMillis)
+                put(CalendarContract.Events.STATUS, CalendarContract.Events.STATUS_CANCELED)
+            }
+            resolver.insert(exceptionUri, values)?.lastPathSegment?.toLongOrNull() ?: -1L
+        } catch (e: Exception) {
+            Log.e(TAG, "cancelSingleInstance failed", e)
+            -1L
+        }
+    }
+
+    /**
+     * "이후 전체" 수정/삭제의 공통 절차 — 마스터 시리즈를 [splitInstanceBeginMillis] 회차 바로
+     * 직전에서 끊는다. RRULE 계산은 [truncateRRuleBefore]가 맡는다. RRULE만 골라 update()하지
+     * 않고 [recreateEvent]로 삭제 후 다시 만드는 이유는 [updateEvent]와 같다 — 이 기기의
+     * CalendarProvider2가 RRULE만 바꾼 update()를 Instances 전개에 반영하지 못했다(실측 확인).
+     */
+    suspend fun truncateSeriesBefore(
+        masterEventId: Long,
+        currentRrule: String,
+        splitInstanceBeginMillis: Long,
+        allDay: Boolean,
+    ): Boolean = withContext(Dispatchers.IO) {
+        if (!hasCalendarWritePermission(context)) {
+            Log.e(TAG, "truncateSeriesBefore: WRITE_CALENDAR permission not granted")
+            return@withContext false
+        }
+        try {
+            val snapshot = readEventRowSnapshot(masterEventId) ?: return@withContext false
+            val originalStart = resolver.query(
+                ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, masterEventId),
+                arrayOf(CalendarContract.Events.DTSTART, CalendarContract.Events.DURATION),
+                null, null, null,
+            )?.use { cursor -> if (cursor.moveToFirst()) cursor.getLong(0) to cursor.getString(1) else null } ?: return@withContext false
+            val (dtstart, duration) = originalStart
+            val newRrule = truncateRRuleBefore(currentRrule, splitInstanceBeginMillis, allDay)
+            val newId = recreateEvent(
+                eventId = masterEventId,
+                snapshot = snapshot,
+                title = snapshot.title,
+                startMillis = dtstart,
+                endMillis = dtstart + parseDurationMillis(duration),
+                allDay = allDay,
+                location = snapshot.location,
+                description = snapshot.description,
+                reminderMinutes = getReminders(masterEventId),
+                rrule = newRrule,
+            )
+            newId > 0
+        } catch (e: SecurityException) {
+            Log.e(TAG, "truncateSeriesBefore failed", e)
+            false
         }
     }
 

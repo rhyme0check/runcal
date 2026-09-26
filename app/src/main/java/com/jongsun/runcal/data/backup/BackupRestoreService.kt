@@ -180,6 +180,7 @@ object BackupRestoreService {
             dao.getAll().forEach { dao.deleteBySourceKey(it.sourceKey) }
         }
         snapshots.forEach { dao.upsert(EventColorStyleEntity(it.sourceKey, it.paletteKey, it.bold)) }
+        com.jongsun.runcal.widget.EventColorStyleCache.invalidate()
         return snapshots.size
     }
 

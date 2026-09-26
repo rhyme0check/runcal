@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
 import java.time.YearMonth
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.serialization.json.Json
 
 private const val TAG = "RunCal"
@@ -21,6 +22,13 @@ private object Keys {
 
 private fun prefsFor(context: Context, appWidgetId: Int): SharedPreferences =
     context.getSharedPreferences(PREFS_NAME_PREFIX + appWidgetId, Context.MODE_PRIVATE)
+
+/**
+ * 인스턴스별 설정의 프로세스 메모리 캐시. presets 목록의 JSON 디코드가 렌더 1회마다(실측
+ * 11~132ms, 변동 큼) 반복되고 있었다 — 값이 실제로 바뀌는 지점([persistWidgetFilterSettings]/
+ * [persistNavigationState])에서만 갱신하고, 그 외에는 디스크 읽기·JSON 디코드 자체를 건너뛴다.
+ */
+private val settingsCache = ConcurrentHashMap<Int, WidgetFilterSettings>()
 
 private fun SharedPreferences.toWidgetFilterSettings(): WidgetFilterSettings {
     val presets = getString(Keys.PRESETS_JSON, null)?.let { json ->
@@ -68,7 +76,42 @@ private fun SharedPreferences.Editor.applyWidgetFilterSettings(settings: WidgetF
 
 /** [appWidgetId] 위젯 인스턴스의 저장된 필터/표시 설정을 읽는다. 설정이 없으면 기본값을 반환한다. */
 fun loadWidgetFilterSettings(context: Context, appWidgetId: Int): WidgetFilterSettings =
-    prefsFor(context, appWidgetId).toWidgetFilterSettings()
+    settingsCache.getOrPut(appWidgetId) { prefsFor(context, appWidgetId).toWidgetFilterSettings() }
+
+/**
+ * ◀▶/오늘 탭마다 바뀌는 두 값(viewingYearMonth, lastNavigatedAtMillis)만 읽는다. 캐시에 이미
+ * 올라와 있으면(대부분의 경우) 디스크/JSON 디코드 없이 바로 반환한다.
+ */
+private fun loadNavigationState(context: Context, appWidgetId: Int): Pair<YearMonth?, Long> {
+    val settings = loadWidgetFilterSettings(context, appWidgetId)
+    return settings.viewingYearMonth to settings.lastNavigatedAtMillis
+}
+
+/** [loadNavigationState]의 반대 — 이 두 값만 디스크에 쓴다(presets 등 나머지 필드는 건드리지 않음, JSON 인코딩 없음). */
+fun persistNavigationState(context: Context, appWidgetId: Int, viewingYearMonth: YearMonth?, lastNavigatedAtMillis: Long) {
+    prefsFor(context, appWidgetId).edit().apply {
+        if (viewingYearMonth == null) remove(Keys.VIEWING_YEAR_MONTH) else putString(Keys.VIEWING_YEAR_MONTH, viewingYearMonth.toString())
+        putLong(Keys.LAST_NAVIGATED_AT_MILLIS, lastNavigatedAtMillis)
+    }.apply()
+    val current = settingsCache[appWidgetId] ?: loadWidgetFilterSettings(context, appWidgetId)
+    settingsCache[appWidgetId] = current.copy(viewingYearMonth = viewingYearMonth, lastNavigatedAtMillis = lastNavigatedAtMillis)
+}
+
+/** ◀▶/오늘 탭 전용 — 전체 설정을 거치지 않고 탐색 상태 두 값만 갱신한 뒤 바로 다시 그린다. */
+suspend fun applyNavigationState(
+    context: Context,
+    appWidgetId: Int,
+    transform: (viewingYearMonth: YearMonth?) -> Pair<YearMonth?, Long>,
+) {
+    val t0 = System.currentTimeMillis()
+    val (currentViewing, _) = loadNavigationState(context, appWidgetId)
+    val (newViewing, newLastNavigated) = transform(currentViewing)
+    val t1 = System.currentTimeMillis()
+    persistNavigationState(context, appWidgetId, newViewing, newLastNavigated)
+    val t2 = System.currentTimeMillis()
+    Log.d(TAG, "applyNavigationState: appWidgetId=$appWidgetId load=${t1 - t0}ms persist=${t2 - t1}ms")
+    RunCalWidgetRenderer.updateWidget(context, appWidgetId)
+}
 
 /**
  * 렌더링을 트리거하지 않고 상태만 동기 저장한다. 렌더러 안(resolveAutoReturn 등)에서 "지금 만들고 있는
@@ -77,6 +120,7 @@ fun loadWidgetFilterSettings(context: Context, appWidgetId: Int): WidgetFilterSe
  */
 fun persistWidgetFilterSettings(context: Context, appWidgetId: Int, settings: WidgetFilterSettings) {
     prefsFor(context, appWidgetId).edit().applyWidgetFilterSettings(settings).apply()
+    settingsCache[appWidgetId] = settings
 }
 
 /**
@@ -89,9 +133,12 @@ suspend fun applyWidgetState(
     appWidgetId: Int,
     transform: (WidgetFilterSettings) -> WidgetFilterSettings,
 ) {
+    val t0 = System.currentTimeMillis()
     val updated = transform(loadWidgetFilterSettings(context, appWidgetId))
+    val t1 = System.currentTimeMillis()
     persistWidgetFilterSettings(context, appWidgetId, updated)
-    Log.d(TAG, "applyWidgetState: appWidgetId=$appWidgetId committed, rendering")
+    val t2 = System.currentTimeMillis()
+    Log.d(TAG, "applyWidgetState: appWidgetId=$appWidgetId load=${t1 - t0}ms persist=${t2 - t1}ms")
     RunCalWidgetRenderer.updateWidget(context, appWidgetId)
 }
 
@@ -125,7 +172,8 @@ suspend fun saveWidgetFilterSettings(
     }
 }
 
-/** 위젯 인스턴스가 삭제될 때 해당 SharedPreferences 파일을 정리한다. */
+/** 위젯 인스턴스가 삭제될 때 해당 SharedPreferences 파일과 메모리 캐시를 정리한다. */
 fun deleteWidgetFilterSettings(context: Context, appWidgetId: Int) {
     context.deleteSharedPreferences(PREFS_NAME_PREFIX + appWidgetId)
+    settingsCache.remove(appWidgetId)
 }

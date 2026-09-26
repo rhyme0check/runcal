@@ -71,7 +71,9 @@ object RunCalWidgetRenderer {
     suspend fun updateWidget(context: Context, appWidgetId: Int) {
         val kind = WidgetKind.forAppWidgetId(context, appWidgetId)
         val views = buildRemoteViews(context, appWidgetId, kind)
+        val ipcStartMillis = System.currentTimeMillis()
         AppWidgetManager.getInstance(context).updateAppWidget(appWidgetId, views)
+        Log.d(TAG, "updateWidget: appWidgetId=$appWidgetId updateAppWidget IPC=${System.currentTimeMillis() - ipcStartMillis}ms")
     }
 
     /** 캘린더 데이터 변경 등 특정 위젯 인스턴스를 특정할 수 없는 경우, 배치된 모든 인스턴스(6종 전부)를 갱신한다. */
@@ -131,15 +133,36 @@ object RunCalWidgetRenderer {
         val textSizes = resolveTextSizes(settings.fontScaleStep)
         val maxBarsPerCell = maxBarsOverride ?: textSizes.maxBarsPerCell
         val backgroundColorInt = resolveBackgroundColorInt(context, settings.backgroundOpacity)
+        val afterSettingsMillis = System.currentTimeMillis()
 
         // 일요일 시작 6주 그리드. 다일간 일정이 그리드 앞뒤(전/다음 달로 삐져나온 날짜)에 걸칠 수 있어
         // 캘린더 조회 범위도 "이번 달"이 아니라 그리드가 실제로 덮는 전체 구간으로 잡는다.
         val weeks = buildMonthGridWeeks(displayedYearMonth, DayOfWeek.SUNDAY)
         val zone = ZoneId.systemDefault()
         val (gridStart, gridEndExclusive) = monthGridDateRange(weeks)
-        val events = fetchEventsForDateRange(context, preset, gridStart, gridEndExclusive, zone)
+        val startMillis = gridStart.atStartOfDay(zone).toInstant().toEpochMilli()
+        val endMillis = gridEndExclusive.atStartOfDay(zone).toInstant().toEpochMilli()
+
+        val calendarEvents = if (preset.calendarIds?.isEmpty() == true) {
+            emptyList()
+        } else {
+            CalendarRepository(context).getEvents(startMillis, endMillis, preset.calendarIds?.toList())
+        }
+        val afterCalendarMillis = System.currentTimeMillis()
+
+        val notionDbIds = preset.notionDatabaseIds ?: emptySet()
+        val notionEvents = if (notionDbIds.isEmpty()) {
+            emptyList()
+        } else {
+            val db = RunCalDatabase.getInstance(context)
+            NotionEventSource(db.notionEventDao(), db.notionDatabaseDao())
+                .getEvents(startMillis, endMillis, notionDbIds.map { com.jongsun.runcal.data.source.SourceRef.NotionDatabase(it) }.toSet())
+        }
+        val afterNotionMillis = System.currentTimeMillis()
+
+        val events = (calendarEvents + notionEvents).sortedBy { it.begin }
         val resolvedColors = resolveEventColors(context, events)
-        Log.d(TAG, "renderMonthly: appWidgetId=$appWidgetId fetched ${events.size} event(s)")
+        val afterColorsMillis = System.currentTimeMillis()
 
         val root = RemoteViews(context.packageName, R.layout.widget_root)
         root.setInt(R.id.widget_background, "setColorFilter", backgroundColorInt)
@@ -152,8 +175,14 @@ object RunCalWidgetRenderer {
         // (호스트가 매번 새로 inflate하지 않고 기존 트리에 reapply하는 최적화 경로를 타면), 매번 채우기
         // 전에 반드시 비워야 6주 그리드가 중복되지 않는다.
         root.removeAllViews(R.id.week_rows_container)
+        var lanePackingNanos = 0L
+        var viewBuildNanos = 0L
         weeks.forEachIndexed { weekIndex, week ->
+            val lanePackStart = System.nanoTime()
             val weekBars = computeWidgetWeekBars(week, events, maxBarsPerCell, zone)
+            lanePackingNanos += System.nanoTime() - lanePackStart
+
+            val viewBuildStart = System.nanoTime()
             val weekRow = RemoteViews(context.packageName, R.layout.widget_week_row)
 
             weekRow.setViewVisibility(R.id.week_number_text, if (settings.showWeekNumber) View.VISIBLE else View.GONE)
@@ -185,9 +214,21 @@ object RunCalWidgetRenderer {
                 weekRow.addView(DAY_SLOT_IDS[dayIndex], cell)
             }
             root.addView(R.id.week_rows_container, weekRow)
+            viewBuildNanos += System.nanoTime() - viewBuildStart
         }
 
-        Log.d(TAG, "renderMonthly: appWidgetId=$appWidgetId built in ${System.currentTimeMillis() - renderStartMillis}ms")
+        val totalMillis = System.currentTimeMillis() - renderStartMillis
+        Log.d(
+            TAG,
+            "renderMonthly perf appWidgetId=$appWidgetId events=${events.size} " +
+                "settings=${afterSettingsMillis - renderStartMillis}ms " +
+                "calendar=${afterCalendarMillis - afterSettingsMillis}ms " +
+                "notion=${afterNotionMillis - afterCalendarMillis}ms " +
+                "colors=${afterColorsMillis - afterNotionMillis}ms " +
+                "lanePacking=${lanePackingNanos / 1_000_000}ms " +
+                "viewBuild=${viewBuildNanos / 1_000_000}ms " +
+                "total=${totalMillis}ms",
+        )
         return root
     }
 
@@ -412,7 +453,8 @@ object RunCalWidgetRenderer {
         if (!idleTooLong && !dateChanged) return settings
 
         val reverted = settings.copy(viewingYearMonth = null, lastNavigatedAtMillis = 0L)
-        persistWidgetFilterSettings(context, appWidgetId, reverted)
+        // presets 등 나머지 필드는 안 바뀌므로 JSON 재인코딩이 필요 없는 가벼운 경로만 쓴다.
+        persistNavigationState(context, appWidgetId, viewingYearMonth = null, lastNavigatedAtMillis = 0L)
         return reverted
     }
 
@@ -633,7 +675,7 @@ object RunCalWidgetRenderer {
      * 부른다 — Notion 캐시 조회와 마찬가지로 200ms 예산에 무시할 수준(단일 쿼리)이다.
      */
     private suspend fun resolveEventColors(context: Context, events: List<EventItem>): Map<Long, ResolvedEventColor> {
-        val styleMap = RunCalDatabase.getInstance(context).eventColorStyleDao().getAll().associateBy { it.sourceKey }
+        val styleMap = EventColorStyleCache.get(context)
         val isDark = isDarkMode(context)
         return events.associate { it.id to resolveEventColor(it, styleMap, isDark) }
     }
@@ -728,3 +770,23 @@ private fun presetPickerIntent(context: Context, appWidgetId: Int): Intent =
         putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
         flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
     }
+
+/**
+ * 색상 스타일 테이블(event_color_styles)은 설정 화면에서만 바뀌고 위젯 렌더에서는 읽기만 하는데,
+ * 렌더 1회마다 Room 쿼리를 새로 부르고 있었다(실측 64~156ms) — 값이 바뀔 때만 [invalidate]로
+ * 지우는 프로세스 메모리 캐시로 바꿔 렌더 경로에서는 대부분 이 쿼리 자체를 건너뛰게 한다.
+ */
+object EventColorStyleCache {
+    @Volatile private var cached: Map<String, com.jongsun.runcal.data.room.EventColorStyleEntity>? = null
+
+    suspend fun get(context: Context): Map<String, com.jongsun.runcal.data.room.EventColorStyleEntity> {
+        cached?.let { return it }
+        val loaded = RunCalDatabase.getInstance(context).eventColorStyleDao().getAll().associateBy { it.sourceKey }
+        cached = loaded
+        return loaded
+    }
+
+    fun invalidate() {
+        cached = null
+    }
+}

@@ -79,6 +79,9 @@ import kotlinx.coroutines.launch
 private val REMINDER_PRESET_MINUTES = listOf(0, 5, 10, 15, 30, 60, 120, 1440)
 private const val MAX_REMINDERS = 5
 
+/** 반복 일정 수정/삭제 시 사용자가 고르는 3택 범위. */
+private enum class RecurrenceEditScope { THIS_ONLY, THIS_AND_FOLLOWING, ALL }
+
 private fun reminderLabel(minutes: Int): String = when {
     minutes == 0 -> "정시"
     minutes < 60 -> "${minutes}분 전"
@@ -234,23 +237,19 @@ private fun EventEditContent(
     var showEndTimePicker by remember { mutableStateOf(false) }
     var showUntilDatePicker by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    var showSaveScopeDialog by remember { mutableStateOf(false) }
+    var showDeleteScopeDialog by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
+    // 날짜/시간 필드는 일부러 탭한 "그 회차"의 시각을 그대로 보여준다(마스터의 진짜 DTSTART가
+    // 아님) — 사용자가 지금 보고 있는 것이 바로 그 회차이고, "이번만"/"이후 전체" 예외 처리가
+    // 전부 이 회차의 원래 시각(existing.begin/end)을 기준으로 동작해야 하기 때문이다. "전체"
+    // 범위를 선택했을 때만 마스터의 진짜 시작 시각을 다시 읽어(getEventDetail) 델타를 계산한다.
+    val isRecurring = !existing?.rrule.isNullOrBlank()
+
     LaunchedEffect(existing?.id) {
         if (existing != null) reminderMinutes = viewModel.getReminders(existing.id)
-        // Instances 조회에서 얻은 begin/end는 탭한 회차의 시각이라 반복 일정의 진짜 DTSTART/기간과
-        // 다를 수 있다 — 반복 규칙이 있으면 마스터 행을 다시 읽어 시작 날짜/시간을 정확히 맞춘다.
-        if (existing != null && !existing.rrule.isNullOrBlank()) {
-            val detail = viewModel.getEventDetail(existing.id) ?: return@LaunchedEffect
-            startDate = Instant.ofEpochMilli(detail.begin).atZone(if (detail.allDay) ZoneOffset.UTC else zone).toLocalDate()
-            endDate = Instant.ofEpochMilli(detail.end).atZone(if (detail.allDay) ZoneOffset.UTC else zone)
-                .let { if (detail.allDay) it.toLocalDate().minusDays(1) else it.toLocalDate() }
-            if (!detail.allDay) {
-                startTime = Instant.ofEpochMilli(detail.begin).atZone(zone).toLocalTime()
-                endTime = Instant.ofEpochMilli(detail.end).atZone(zone).toLocalTime()
-            }
-        }
     }
 
     val endBeforeStart = remember(startDate, endDate, startTime, endTime, allDay) {
@@ -268,6 +267,79 @@ private fun EventEditContent(
             endDate.atTime(endTime).atZone(zone).toInstant().toEpochMilli()
     }
 
+    suspend fun performSave(calendarId: Long, editScope: RecurrenceEditScope): Boolean {
+        val (newBegin, newEnd) = computeMillis()
+        if (existing == null) {
+            val rrule = recurrenceRule.toRRuleString(startDate)
+            return viewModel.createLocalEvent(calendarId, title.trim(), newBegin, newEnd, allDay, location.trim(), description.trim(), reminderMinutes, rrule) > 0
+        }
+        return when {
+            editScope == RecurrenceEditScope.THIS_ONLY -> viewModel.createSingleOccurrenceException(
+                masterEventId = existing.id,
+                originalInstanceBeginMillis = existing.begin,
+                title = title.trim(),
+                startMillis = newBegin,
+                endMillis = newEnd,
+                allDay = allDay,
+                location = location.trim(),
+                description = description.trim(),
+                reminderMinutes = reminderMinutes,
+            ) > 0
+            editScope == RecurrenceEditScope.THIS_AND_FOLLOWING -> {
+                val newAnchorDate = Instant.ofEpochMilli(newBegin).atZone(if (allDay) ZoneOffset.UTC else zone).toLocalDate()
+                viewModel.updateFollowingOccurrences(
+                    masterEventId = existing.id,
+                    masterAllDay = existing.allDay,
+                    masterRrule = existing.rrule.orEmpty(),
+                    splitInstanceBeginMillis = existing.begin,
+                    calendarId = calendarId,
+                    title = title.trim(),
+                    startMillis = newBegin,
+                    endMillis = newEnd,
+                    allDay = allDay,
+                    location = location.trim(),
+                    description = description.trim(),
+                    reminderMinutes = reminderMinutes,
+                    newRrule = recurrenceRule.toRRuleString(newAnchorDate),
+                ) > 0
+            }
+            // ALL. 반복 일정이면 탭한 회차에 적용한 시간 이동분(델타)만큼 마스터의 진짜 DTSTART를
+            // 함께 옮긴다 — 그래야 5번째 회차를 열어 시간만 한 시간 늦췄을 때 전체 시리즈가
+            // 정확히 한 시간씩 밀리지, 마스터가 엉뚱한 날짜로 재고정되지 않는다.
+            isRecurring -> {
+                val master = viewModel.getEventDetail(existing.id) ?: return false
+                val newMasterStart = master.begin + (newBegin - existing.begin)
+                val newMasterEnd = master.end + (newEnd - existing.end)
+                val newAnchorDate = Instant.ofEpochMilli(newMasterStart).atZone(if (allDay) ZoneOffset.UTC else zone).toLocalDate()
+                viewModel.updateLocalEvent(
+                    existing.id, title.trim(), newMasterStart, newMasterEnd, allDay, location.trim(), description.trim(),
+                    reminderMinutes, recurrenceRule.toRRuleString(newAnchorDate),
+                ) > 0
+            }
+            else -> viewModel.updateLocalEvent(
+                existing.id, title.trim(), newBegin, newEnd, allDay, location.trim(), description.trim(),
+                reminderMinutes, recurrenceRule.toRRuleString(startDate),
+            ) > 0
+        }
+    }
+
+    suspend fun performDelete(editScope: RecurrenceEditScope): Boolean {
+        val id = existing?.id ?: return false
+        return when (editScope) {
+            RecurrenceEditScope.THIS_ONLY -> viewModel.deleteSingleOccurrence(
+                masterEventId = id,
+                originalInstanceBeginMillis = existing.begin,
+            ) > 0
+            RecurrenceEditScope.THIS_AND_FOLLOWING -> viewModel.deleteFollowingOccurrences(
+                masterEventId = id,
+                masterAllDay = existing.allDay,
+                masterRrule = existing.rrule.orEmpty(),
+                splitInstanceBeginMillis = existing.begin,
+            )
+            RecurrenceEditScope.ALL -> viewModel.deleteLocalEvent(id) > 0
+        }
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(16.dp),
@@ -277,7 +349,9 @@ private fun EventEditContent(
             Text(text = if (existing == null) "일정 추가" else "일정 수정", style = MaterialTheme.typography.titleLarge)
             Row {
                 if (existing != null) {
-                    IconButton(onClick = { showDeleteConfirm = true }) { Icon(Icons.Default.Delete, contentDescription = "삭제") }
+                    IconButton(onClick = { if (isRecurring) showDeleteScopeDialog = true else showDeleteConfirm = true }) {
+                        Icon(Icons.Default.Delete, contentDescription = "삭제")
+                    }
                 }
                 IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, contentDescription = "닫기") }
             }
@@ -299,7 +373,10 @@ private fun EventEditContent(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(text = "종일", style = MaterialTheme.typography.bodyLarge)
-                Switch(checked = allDay, onCheckedChange = { allDay = it })
+                // 반복 일정은 종일/시간 지정 여부를 회차마다 다르게 둘 수 없다(ORIGINAL_ALL_DAY가
+                // 시리즈 전체에 대해 하나로 고정됨) — 예외 처리 로직을 단순하고 안전하게 유지하려고
+                // 기존 반복 일정을 열었을 때는 이 토글을 잠근다.
+                Switch(checked = allDay, onCheckedChange = { allDay = it }, enabled = !isRecurring)
             }
             Spacer(modifier = Modifier.height(8.dp))
 
@@ -543,18 +620,16 @@ private fun EventEditContent(
                 modifier = Modifier.weight(1f),
                 enabled = canSave && !saving,
                 onClick = {
-                    val calendarId = selectedCalendarId ?: return@Button
-                    scope.launch {
-                        saving = true
-                        val (startMillis, endMillis) = computeMillis()
-                        val rrule = recurrenceRule.toRRuleString(startDate)
-                        val ok = if (existing == null) {
-                            viewModel.createLocalEvent(calendarId, title.trim(), startMillis, endMillis, allDay, location.trim(), description.trim(), reminderMinutes, rrule) > 0
-                        } else {
-                            viewModel.updateLocalEvent(existing.id, title.trim(), startMillis, endMillis, allDay, location.trim(), description.trim(), reminderMinutes, rrule) > 0
+                    if (isRecurring) {
+                        showSaveScopeDialog = true
+                    } else {
+                        val calendarId = selectedCalendarId ?: return@Button
+                        scope.launch {
+                            saving = true
+                            val ok = performSave(calendarId, RecurrenceEditScope.ALL)
+                            saving = false
+                            if (ok) onDismiss() else errorMessage = "저장하지 못했습니다. 캘린더 권한을 확인해주세요."
                         }
-                        saving = false
-                        if (ok) onDismiss() else errorMessage = "저장하지 못했습니다. 캘린더 권한을 확인해주세요."
                     }
                 },
             ) { Text(if (saving) "저장 중..." else "저장") }
@@ -625,6 +700,61 @@ private fun EventEditContent(
             dismissButton = { TextButton(onClick = { showDeleteConfirm = false }) { Text("취소") } },
         )
     }
+    if (showSaveScopeDialog) {
+        RecurrenceScopeDialog(
+            actionLabel = "수정",
+            onDismiss = { showSaveScopeDialog = false },
+            onSelect = { editScope ->
+                showSaveScopeDialog = false
+                val calendarId = selectedCalendarId
+                if (calendarId != null) {
+                    scope.launch {
+                        saving = true
+                        val ok = performSave(calendarId, editScope)
+                        saving = false
+                        if (ok) onDismiss() else errorMessage = "저장하지 못했습니다. 캘린더 권한을 확인해주세요."
+                    }
+                }
+            },
+        )
+    }
+    if (showDeleteScopeDialog) {
+        RecurrenceScopeDialog(
+            actionLabel = "삭제",
+            onDismiss = { showDeleteScopeDialog = false },
+            onSelect = { editScope ->
+                showDeleteScopeDialog = false
+                scope.launch {
+                    val ok = performDelete(editScope)
+                    if (ok) onDismiss() else errorMessage = "삭제하지 못했습니다. 캘린더 권한을 확인해주세요."
+                }
+            },
+        )
+    }
+}
+
+/** "이번만 / 이후 전체 / 전체" 3택 — 반복 일정 수정·삭제 공용. */
+@Composable
+private fun RecurrenceScopeDialog(actionLabel: String, onDismiss: () -> Unit, onSelect: (RecurrenceEditScope) -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("반복 일정 $actionLabel") },
+        text = {
+            Column {
+                TextButton(onClick = { onSelect(RecurrenceEditScope.THIS_ONLY) }, modifier = Modifier.fillMaxWidth()) {
+                    Text("이번만", modifier = Modifier.fillMaxWidth())
+                }
+                TextButton(onClick = { onSelect(RecurrenceEditScope.THIS_AND_FOLLOWING) }, modifier = Modifier.fillMaxWidth()) {
+                    Text("이후 전체", modifier = Modifier.fillMaxWidth())
+                }
+                TextButton(onClick = { onSelect(RecurrenceEditScope.ALL) }, modifier = Modifier.fillMaxWidth()) {
+                    Text("전체", modifier = Modifier.fillMaxWidth())
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("취소") } },
+    )
 }
 
 @Composable
