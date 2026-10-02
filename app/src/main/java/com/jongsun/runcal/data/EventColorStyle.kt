@@ -63,6 +63,8 @@ fun contrastingTextColorArgb(@ColorInt backgroundColor: Int): Int {
 /** [rawColor]에 소스별 스타일 오버라이드([style], 없으면 null=시스템 기본)를 적용한 배경색. */
 @ColorInt
 fun resolveBackgroundColor(@ColorInt rawColor: Int, style: EventColorStyleEntity?, isDarkTheme: Boolean): Int {
+    // 자유색("#AARRGGBB")은 다크 모드에서 원본 색과 같은 방식으로 명도만 보정한다.
+    parseCustomColorKey(style?.paletteKey)?.let { return adjustColorForTheme(it, isDarkTheme) }
     val paletteKey = style?.paletteKey?.let { key -> runCatching { EventColorPaletteKey.valueOf(key) }.getOrNull() }
     return paletteKey?.argbFor(isDarkTheme) ?: adjustColorForTheme(rawColor, isDarkTheme)
 }
@@ -74,6 +76,8 @@ fun resolveEventColor(
     isDarkTheme: Boolean,
 ): ResolvedEventColor {
     val style = styleMap[sourceKeyFor(event)]
-    val background = resolveBackgroundColor(event.color, style, isDarkTheme)
+    // 일정에 직접 지정한 색(일정 유형·색 선택)은 소스(캘린더) 단위 색 스타일보다 우선한다. 굵기는 소스 스타일을 따른다.
+    val background = event.eventColor?.let { adjustColorForTheme(it, isDarkTheme) }
+        ?: resolveBackgroundColor(event.color, style, isDarkTheme)
     return ResolvedEventColor(background, contrastingTextColorArgb(background), style?.bold ?: false)
 }

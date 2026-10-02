@@ -98,6 +98,8 @@ object BackupJob {
                     endMillis = event.end,
                     allDay = event.allDay,
                     location = event.location,
+                    eventColor = event.eventColor,
+                    eventTypeId = calendarRepository.getEventTypeId(provenance.calendarEventId),
                 )
             }
         }
@@ -121,6 +123,7 @@ object BackupJob {
             notionDatabases = notionDatabases,
             eventColorStyles = eventColorStyles,
             localEvents = localEvents,
+            eventTypes = db.eventTypeDao().getAll().map { BackupEventType(it.id, it.name, it.colorArgb, it.defaultCalendarId, it.defaultReminderMinutes, it.sortOrder) },
         )
     }
 

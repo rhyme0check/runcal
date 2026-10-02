@@ -56,6 +56,20 @@ private val MIGRATION_4_5 = object : Migration(4, 5) {
     }
 }
 
+private val MIGRATION_5_6 = object : Migration(5, 6) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS event_types (" +
+                "id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL, colorArgb INTEGER NOT NULL, " +
+                "defaultCalendarId INTEGER, defaultReminderMinutes INTEGER, sortOrder INTEGER NOT NULL)",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS event_type_assignments (" +
+                "eventId INTEGER NOT NULL PRIMARY KEY, typeId TEXT NOT NULL)",
+        )
+    }
+}
+
 @Database(
     entities = [
         NotionDatabaseEntity::class,
@@ -66,8 +80,10 @@ private val MIGRATION_4_5 = object : Migration(4, 5) {
         SpecialDayEntity::class,
         LunarDayEntity::class,
         SpecialFetchStatusEntity::class,
+        EventTypeEntity::class,
+        EventTypeAssignmentEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 abstract class RunCalDatabase : RoomDatabase() {
@@ -77,6 +93,7 @@ abstract class RunCalDatabase : RoomDatabase() {
     abstract fun localEventProvenanceDao(): LocalEventProvenanceDao
     abstract fun scheduledReminderDao(): ScheduledReminderDao
     abstract fun specialDayDao(): SpecialDayDao
+    abstract fun eventTypeDao(): EventTypeDao
 
     companion object {
         @Volatile private var instance: RunCalDatabase? = null
@@ -87,7 +104,7 @@ abstract class RunCalDatabase : RoomDatabase() {
                     context.applicationContext,
                     RunCalDatabase::class.java,
                     "runcal_database",
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5).build().also { instance = it }
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6).build().also { instance = it }
             }
     }
 }

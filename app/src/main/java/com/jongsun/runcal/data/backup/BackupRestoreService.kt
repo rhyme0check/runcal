@@ -6,6 +6,7 @@ import com.jongsun.runcal.data.CalendarRepository
 import com.jongsun.runcal.data.DEFAULT_APP_PRESET
 import com.jongsun.runcal.data.DEFAULT_WEEK_START_DAY
 import com.jongsun.runcal.data.room.EventColorStyleEntity
+import com.jongsun.runcal.data.room.EventTypeEntity
 import com.jongsun.runcal.data.room.NotionDatabaseEntity
 import com.jongsun.runcal.data.room.RunCalDatabase
 import com.jongsun.runcal.widget.enumeratePlacedWidgetIds
@@ -54,6 +55,7 @@ object BackupRestoreService {
             val (widgetsRestored, widgetsSkipped) = restoreWidgetInstances(context, payload.widgetInstances)
             val notionRestored = restoreNotionDatabases(context, db, payload.notionDatabases, mode)
             val colorStylesRestored = restoreEventColorStyles(db, payload.eventColorStyles, mode)
+            restoreEventTypes(db, payload.eventTypes, mode)
             val localEventsRestored = restoreLocalEvents(db, calendarRepository, payload.localEvents, mode)
 
             RestoreSummary(
@@ -205,6 +207,14 @@ object BackupRestoreService {
         return snapshots.size
     }
 
+    /** 병합=id 기준 덮어쓰며 추가, 덮어쓰기=전체 교체. 구버전 백업(유형 없음)이면 아무것도 하지 않는다. */
+    private suspend fun restoreEventTypes(db: RunCalDatabase, snapshots: List<BackupEventType>, mode: RestoreMode) {
+        if (snapshots.isEmpty()) return
+        val dao = db.eventTypeDao()
+        if (mode == RestoreMode.OVERWRITE) dao.deleteAllTypes()
+        dao.upsertAll(snapshots.map { EventTypeEntity(it.id, it.name, it.colorArgb, it.defaultCalendarId, it.defaultReminderMinutes, it.sortOrder) })
+    }
+
     /**
      * 병합=(title, startMillis, endMillis) 기준 없으면 삽입, 덮어쓰기=현재 provenance 추적 중인
      * 로컬 일정을 전부 지우고 백업 내용으로 재생성(provenance 안 걸린 이벤트는 건드리지 않음).
@@ -240,6 +250,9 @@ object BackupRestoreService {
                 startMillis = snapshot.startMillis,
                 endMillis = snapshot.endMillis,
                 allDay = snapshot.allDay,
+                location = snapshot.location,
+                eventColor = snapshot.eventColor,
+                eventTypeId = snapshot.eventTypeId,
             )
             if (newId > 0) restored++
         }

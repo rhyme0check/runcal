@@ -220,6 +220,11 @@ fun SettingsScreen(viewModel: CalendarViewModel, assistantViewModel: AssistantVi
 
         item {
             HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+            EventTypeSettingsSection(viewModel = viewModel)
+        }
+
+        item {
+            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
             ColorStyleSettingsSection(viewModel = viewModel)
         }
 

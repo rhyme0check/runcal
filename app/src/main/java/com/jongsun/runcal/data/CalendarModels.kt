@@ -65,4 +65,6 @@ data class EventItem(
     // 아니면 null/빈 문자열 — CalendarContract.Instances는 이 값을 회차마다 그대로 복제해서
     // 돌려주므로, 어떤 회차를 눌러도 같은 반복 규칙을 읽을 수 있다.
     val rrule: String? = null,
+    // 일정에 직접 지정한 색(CalendarContract.Events.EVENT_COLOR). null이면 캘린더(소스) 색을 따른다.
+    val eventColor: Int? = null,
 )

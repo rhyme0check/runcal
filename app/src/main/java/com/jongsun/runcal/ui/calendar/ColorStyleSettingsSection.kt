@@ -33,6 +33,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jongsun.runcal.data.EventColorPaletteKey
+import com.jongsun.runcal.data.customColorKey
+import com.jongsun.runcal.data.parseCustomColorKey
 import com.jongsun.runcal.data.resolveBackgroundColor
 import com.jongsun.runcal.data.room.EventColorStyleEntity
 import com.jongsun.runcal.data.sourceKeyForCalendar
@@ -89,6 +91,9 @@ fun ColorStyleSettingsSection(viewModel: CalendarViewModel, modifier: Modifier =
         ColorStyleEditDialog(
             source = source,
             currentStyle = styles[source.key],
+            recommended = remember(source, styles, calendars, notionDatabases) {
+                com.jongsun.runcal.data.recommendColors(viewModel.usedColors().filter { it != source.rawColor })
+            },
             isDarkTheme = isDarkTheme,
             onDismiss = { editingSource = null },
             onSave = { paletteKey, bold ->
@@ -113,6 +118,7 @@ private fun ColorStyleSourceRow(
     }
     val paletteLabel = style?.paletteKey
         ?.let { key -> runCatching { EventColorPaletteKey.valueOf(key) }.getOrNull()?.displayName }
+        ?: style?.paletteKey?.takeIf { it.startsWith("#") }?.let { "사용자 색 " + it.takeLast(6) }
         ?: "시스템 기본"
     val subtitle = if (style?.bold == true) "$paletteLabel · 굵게" else paletteLabel
 
@@ -137,6 +143,7 @@ private fun ColorStyleSourceRow(
 private fun ColorStyleEditDialog(
     source: ColorStyleSource,
     currentStyle: EventColorStyleEntity?,
+    recommended: List<Int>,
     isDarkTheme: Boolean,
     onDismiss: () -> Unit,
     onSave: (paletteKey: String?, bold: Boolean) -> Unit,
@@ -150,35 +157,24 @@ private fun ColorStyleEditDialog(
         text = {
             Column {
                 Text(text = "색상", style = MaterialTheme.typography.labelMedium)
+                Text(
+                    text = "추천색은 다른 캘린더·Notion·유형 색과 최대한 구분되게 고른 것입니다. + 로 자유색을 지정할 수 있습니다.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 Spacer(modifier = Modifier.height(6.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth().clickable { selectedPaletteKey = null },
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    ColorSwatch(
-                        argb = resolveBackgroundColor(source.rawColor, null, isDarkTheme),
-                        selected = selectedPaletteKey == null,
-                        onClick = { selectedPaletteKey = null },
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text(text = "시스템 기본", style = MaterialTheme.typography.bodyMedium)
-                }
+                // 구버전 팔레트 이름(RED 등)으로 저장된 값도 색으로 바꿔 보여 준다.
+                val selectedArgb = parseCustomColorKey(selectedPaletteKey)
+                    ?: selectedPaletteKey?.let { k -> runCatching { EventColorPaletteKey.valueOf(k).lightArgb }.getOrNull() }
+                ColorChoiceRow(
+                    selected = selectedArgb,
+                    recommended = recommended,
+                    restricted = null,
+                    onSelect = { argb -> selectedPaletteKey = argb?.let { customColorKey(it) } },
+                    noneLabel = "시스템 기본(원래 색)",
+                    noneColor = resolveBackgroundColor(source.rawColor, null, isDarkTheme),
+                )
                 Spacer(modifier = Modifier.height(10.dp))
-                EventColorPaletteKey.entries.chunked(5).forEach { row ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(bottom = 8.dp)) {
-                        row.forEach { key ->
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                ColorSwatch(
-                                    argb = key.argbFor(isDarkTheme),
-                                    selected = selectedPaletteKey == key.name,
-                                    onClick = { selectedPaletteKey = key.name },
-                                )
-                                Text(text = key.displayName, style = MaterialTheme.typography.labelSmall)
-                            }
-                        }
-                    }
-                }
-                Spacer(modifier = Modifier.height(4.dp))
                 Text(text = "텍스트 굵기", style = MaterialTheme.typography.labelMedium)
                 Row(modifier = Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(selected = !bold, onClick = { bold = false }, label = { Text("보통") })

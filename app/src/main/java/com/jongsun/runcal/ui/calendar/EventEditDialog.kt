@@ -58,6 +58,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jongsun.runcal.data.AccountEventColors
+import com.jongsun.runcal.data.EventStyleChoice
+import com.jongsun.runcal.data.hasRestrictedEventColors
+import com.jongsun.runcal.data.nearestColor
+import com.jongsun.runcal.data.recommendColors
 import com.jongsun.runcal.data.EventItem
 import com.jongsun.runcal.data.MonthlyRecurrenceType
 import com.jongsun.runcal.data.RecurrenceEndType
@@ -256,9 +261,19 @@ private fun EventEditContent(
     // 정상). "이번만"은 이 결함을 그대로 노출하므로 로컬 캘린더에서는 선택지 자체를 감춘다.
     val isLocalCalendar = calendars.find { it.id == existing?.calendarId }?.accountType == android.provider.CalendarContract.ACCOUNT_TYPE_LOCAL
 
+    // 일정 유형·색. 기존 일정은 저장된 유형을 읽어 오고, 사용자가 손댄 경우에만 저장 시 반영한다(styleTouched).
+    val eventTypes by viewModel.eventTypes.collectAsStateWithLifecycle()
+    var typeId by remember { mutableStateOf<String?>(null) }
+    var eventColor by remember { mutableStateOf(existing?.eventColor) }
+    var styleTouched by remember { mutableStateOf(false) }
+
     LaunchedEffect(existing?.id) {
-        if (existing != null) reminderMinutes = viewModel.getReminders(existing.id)
+        if (existing != null) {
+            reminderMinutes = viewModel.getReminders(existing.id)
+            typeId = viewModel.getEventTypeId(existing.id)
+        }
     }
+    fun styleForSave(): EventStyleChoice? = if (existing == null || styleTouched) EventStyleChoice(eventColor, typeId) else null
 
     val endBeforeStart = remember(startDate, endDate, startTime, endTime, allDay) {
         val s = if (allDay) startDate.atStartOfDay() else startDate.atTime(startTime)
@@ -279,7 +294,7 @@ private fun EventEditContent(
         val (newBegin, newEnd) = computeMillis()
         if (existing == null) {
             val rrule = recurrenceRule.toRRuleString(startDate)
-            return viewModel.createLocalEvent(calendarId, title.trim(), newBegin, newEnd, allDay, location.trim(), description.trim(), reminderMinutes, rrule) > 0
+            return viewModel.createLocalEvent(calendarId, title.trim(), newBegin, newEnd, allDay, location.trim(), description.trim(), reminderMinutes, rrule, style = styleForSave()) > 0
         }
         return when {
             editScope == RecurrenceEditScope.THIS_ONLY -> viewModel.createSingleOccurrenceException(
@@ -292,6 +307,7 @@ private fun EventEditContent(
                 location = location.trim(),
                 description = description.trim(),
                 reminderMinutes = reminderMinutes,
+                style = styleForSave(),
             ) > 0
             editScope == RecurrenceEditScope.THIS_AND_FOLLOWING -> {
                 val newAnchorDate = Instant.ofEpochMilli(newBegin).atZone(if (allDay) ZoneOffset.UTC else zone).toLocalDate()
@@ -309,6 +325,7 @@ private fun EventEditContent(
                     description = description.trim(),
                     reminderMinutes = reminderMinutes,
                     newRrule = recurrenceRule.toRRuleString(newAnchorDate),
+                    style = styleForSave(),
                 ) > 0
             }
             // ALL. 반복 일정이면 탭한 회차에 적용한 시간 이동분(델타)만큼 마스터의 진짜 DTSTART를
@@ -322,11 +339,13 @@ private fun EventEditContent(
                 viewModel.updateLocalEvent(
                     existing.id, title.trim(), newMasterStart, newMasterEnd, allDay, location.trim(), description.trim(),
                     reminderMinutes, recurrenceRule.toRRuleString(newAnchorDate),
+                    style = styleForSave(),
                 ) > 0
             }
             else -> viewModel.updateLocalEvent(
                 existing.id, title.trim(), newBegin, newEnd, allDay, location.trim(), description.trim(),
                 reminderMinutes, recurrenceRule.toRRuleString(startDate),
+                style = styleForSave(),
             ) > 0
         }
     }
@@ -373,6 +392,40 @@ private fun EventEditContent(
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
+            if (eventTypes.isNotEmpty()) {
+                Text(text = "유형", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 8.dp))
+                Row(
+                    modifier = Modifier.padding(vertical = 4.dp).horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    FilterChip(
+                        selected = typeId == null,
+                        onClick = { typeId = null; styleTouched = true },
+                        label = { Text("없음") },
+                    )
+                    eventTypes.forEach { type ->
+                        FilterChip(
+                            selected = typeId == type.id,
+                            onClick = {
+                                typeId = type.id
+                                styleTouched = true
+                                eventColor = type.colorArgb
+                                // 새 일정에서만 캘린더·알림을 유형 기본값으로 채운다(기존 일정의 저장 위치는 함부로 바꾸지 않음).
+                                if (existing == null) {
+                                    type.defaultCalendarId?.takeIf { id -> writableCalendars.any { it.id == id } }?.let { selectedCalendarId = it }
+                                    when (val m = type.defaultReminderMinutes) {
+                                        null -> Unit
+                                        -1 -> reminderMinutes = emptyList()
+                                        else -> reminderMinutes = listOf(m)
+                                    }
+                                }
+                            },
+                            leadingIcon = { Box(modifier = Modifier.size(10.dp).background(Color(type.colorArgb), CircleShape)) },
+                            label = { Text(type.name) },
+                        )
+                    }
+                }
+            }
             Spacer(modifier = Modifier.height(12.dp))
 
             Row(
@@ -584,6 +637,24 @@ private fun EventEditContent(
                     }
                 }
             }
+            val selectedCalendar = writableCalendars.firstOrNull { it.id == selectedCalendarId }
+            val context = androidx.compose.ui.platform.LocalContext.current
+            val restrictedColors = remember(selectedCalendar) {
+                selectedCalendar?.takeIf { it.hasRestrictedEventColors() }
+                    ?.let { AccountEventColors.forAccount(context, it.accountName, it.accountType) }?.takeIf { it.isNotEmpty() }
+            }
+            val recommended = remember(calendars, eventTypes) { recommendColors(viewModel.usedColors()) }
+            // 구글 캘린더로 바꾸면 고른 색을 그 계정이 허용하는 가장 가까운 색으로 보여 준다(저장도 그 색으로 된다).
+            val shownColor = eventColor?.let { c -> restrictedColors?.let { nearestColor(c, it)?.argb } ?: c }
+            Text(text = "색상", style = MaterialTheme.typography.labelMedium)
+            ColorChoiceRow(
+                selected = shownColor,
+                recommended = recommended,
+                restricted = restrictedColors,
+                onSelect = { eventColor = it; styleTouched = true },
+                noneLabel = "캘린더 색 사용",
+                noneColor = selectedCalendar?.color,
+            )
             Spacer(modifier = Modifier.height(8.dp))
 
             Row(

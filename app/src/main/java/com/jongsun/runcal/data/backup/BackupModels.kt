@@ -95,6 +95,20 @@ data class BackupLocalEvent(
     val endMillis: Long,
     val allDay: Boolean,
     val location: String,
+    // 일정 색(EVENT_COLOR)과 유형. null = 구버전 백업이거나 지정 안 함.
+    val eventColor: Int? = null,
+    val eventTypeId: String? = null,
+)
+
+/** 일정 유형 하나(설정 > 일정 유형). */
+@Serializable
+data class BackupEventType(
+    val id: String,
+    val name: String,
+    val colorArgb: Int,
+    val defaultCalendarId: Long?,
+    val defaultReminderMinutes: Int?,
+    val sortOrder: Int,
 )
 
 @Serializable
@@ -108,4 +122,5 @@ data class BackupPayload(
     val notionDatabases: List<BackupNotionDatabase>,
     val eventColorStyles: List<BackupEventColorStyle>,
     val localEvents: List<BackupLocalEvent>,
+    val eventTypes: List<BackupEventType> = emptyList(),
 )

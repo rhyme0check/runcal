@@ -6,6 +6,7 @@ import android.content.Context
 import android.net.Uri
 import android.provider.CalendarContract
 import android.util.Log
+import com.jongsun.runcal.data.room.EventTypeAssignmentEntity
 import com.jongsun.runcal.data.room.LocalEventProvenanceEntity
 import com.jongsun.runcal.data.room.RunCalDatabase
 import com.jongsun.runcal.data.source.EventSource
@@ -53,6 +54,7 @@ class CalendarRepository(private val context: Context) : EventSource {
 
     private val resolver get() = context.contentResolver
     private val provenanceDao by lazy { RunCalDatabase.getInstance(context).localEventProvenanceDao() }
+    private val eventTypeDao by lazy { RunCalDatabase.getInstance(context).eventTypeDao() }
 
     suspend fun getCalendars(): List<CalendarInfo> = withContext(Dispatchers.IO) {
         if (!hasCalendarReadPermission(context)) {
@@ -125,6 +127,7 @@ class CalendarRepository(private val context: Context) : EventSource {
                 CalendarContract.Instances.EVENT_LOCATION,
                 CalendarContract.Instances.DESCRIPTION,
                 CalendarContract.Instances.RRULE,
+                CalendarContract.Instances.EVENT_COLOR,
             )
             val uri = CalendarContract.Instances.CONTENT_URI.buildUpon().apply {
                 ContentUris.appendId(this, startMillis)
@@ -150,6 +153,7 @@ class CalendarRepository(private val context: Context) : EventSource {
                 val locationIdx = cursor.getColumnIndexOrThrow(CalendarContract.Instances.EVENT_LOCATION)
                 val descriptionIdx = cursor.getColumnIndexOrThrow(CalendarContract.Instances.DESCRIPTION)
                 val rruleIdx = cursor.getColumnIndexOrThrow(CalendarContract.Instances.RRULE)
+                val eventColorIdx = cursor.getColumnIndexOrThrow(CalendarContract.Instances.EVENT_COLOR)
                 while (cursor.moveToNext()) {
                     result += EventItem(
                         id = cursor.getLong(eventIdIdx),
@@ -162,6 +166,7 @@ class CalendarRepository(private val context: Context) : EventSource {
                         location = cursor.getString(locationIdx).orEmpty(),
                         description = cursor.getString(descriptionIdx).orEmpty(),
                         rrule = cursor.getString(rruleIdx)?.takeIf { it.isNotBlank() },
+                        eventColor = if (cursor.isNull(eventColorIdx)) null else cursor.getInt(eventColorIdx).takeIf { it != 0 },
                     )
                 }
             }
@@ -183,6 +188,9 @@ class CalendarRepository(private val context: Context) : EventSource {
         reminderMinutes: List<Int> = emptyList(),
         timeZoneId: String = TimeZone.getDefault().id,
         rrule: String? = null,
+        // null = 캘린더 색을 따름. 구글 등 색이 정해진 계정은 가장 가까운 허용 색으로 맞춰 저장된다.
+        eventColor: Int? = null,
+        eventTypeId: String? = null,
     ): Long = withContext(Dispatchers.IO) {
         if (!hasCalendarWritePermission(context)) {
             Log.e(TAG, "createEvent: WRITE_CALENDAR permission not granted")
@@ -205,12 +213,14 @@ class CalendarRepository(private val context: Context) : EventSource {
                 put(CalendarContract.Events.EVENT_LOCATION, location)
                 put(CalendarContract.Events.DESCRIPTION, description)
                 if (reminderMinutes.isNotEmpty()) put(CalendarContract.Events.HAS_ALARM, 1)
+                putEventColor(this, calendarId, eventColor)
             }
             val id = resolver.insert(CalendarContract.Events.CONTENT_URI, values)?.lastPathSegment?.toLongOrNull() ?: -1L
             // "RunCal이 만든 일정"이라는 출처 표시 — 백업이 이 표시로 로컬 일정만 골라 다시 읽는다.
             if (id > 0) {
                 provenanceDao.insert(LocalEventProvenanceEntity(id, calendarId, System.currentTimeMillis()))
                 replaceReminders(id, reminderMinutes)
+                setEventType(id, eventTypeId)
             }
             id
         } catch (e: SecurityException) {
@@ -239,9 +249,11 @@ class CalendarRepository(private val context: Context) : EventSource {
                 CalendarContract.Events.EVENT_LOCATION,
                 CalendarContract.Events.DESCRIPTION,
                 CalendarContract.Events.RRULE,
+                CalendarContract.Events.EVENT_COLOR,
             )
             resolver.query(uri, projection, null, null, null)?.use { cursor ->
                 if (!cursor.moveToFirst()) return@withContext null
+                val eventColorIdx = cursor.getColumnIndexOrThrow(CalendarContract.Events.EVENT_COLOR)
                 val endIdx = cursor.getColumnIndexOrThrow(CalendarContract.Events.DTEND)
                 val durationIdx = cursor.getColumnIndexOrThrow(CalendarContract.Events.DURATION)
                 val startMillis = cursor.getLong(cursor.getColumnIndexOrThrow(CalendarContract.Events.DTSTART))
@@ -263,6 +275,7 @@ class CalendarRepository(private val context: Context) : EventSource {
                     location = cursor.getString(cursor.getColumnIndexOrThrow(CalendarContract.Events.EVENT_LOCATION)).orEmpty(),
                     description = cursor.getString(cursor.getColumnIndexOrThrow(CalendarContract.Events.DESCRIPTION)).orEmpty(),
                     rrule = cursor.getString(cursor.getColumnIndexOrThrow(CalendarContract.Events.RRULE))?.takeIf { it.isNotBlank() },
+                    eventColor = if (cursor.isNull(eventColorIdx)) null else cursor.getInt(eventColorIdx).takeIf { it != 0 },
                 )
             }
             null
@@ -285,6 +298,10 @@ class CalendarRepository(private val context: Context) : EventSource {
         // 반복 규칙의 전체 원하는 상태(null/빈 문자열 = 반복 아님). startMillis/endMillis와 함께
         // 넘어올 때만 반영한다 — 편집 화면은 항상 이 셋을 함께 넘기므로 부분 갱신 신경 쓸 필요가 없다.
         rrule: String? = null,
+        // [updateColor]가 true일 때만 색/유형을 바꾼다(eventColor=null이면 캘린더 색으로 되돌림).
+        updateColor: Boolean = false,
+        eventColor: Int? = null,
+        eventTypeId: String? = null,
     ): Int = withContext(Dispatchers.IO) {
         if (!hasCalendarWritePermission(context)) {
             Log.e(TAG, "updateEvent: WRITE_CALENDAR permission not granted")
@@ -310,6 +327,8 @@ class CalendarRepository(private val context: Context) : EventSource {
                     description = description ?: snapshot.description,
                     reminderMinutes = reminderMinutes ?: getReminders(eventId),
                     rrule = rrule,
+                    eventColor = if (updateColor) eventColor else snapshot.eventColor,
+                    eventTypeId = if (updateColor) eventTypeId else eventTypeDao.typeIdFor(eventId),
                 )
                 return@withContext if (newId > 0) 1 else 0
             }
@@ -325,7 +344,9 @@ class CalendarRepository(private val context: Context) : EventSource {
                 location?.let { put(CalendarContract.Events.EVENT_LOCATION, it) }
                 description?.let { put(CalendarContract.Events.DESCRIPTION, it) }
                 reminderMinutes?.let { put(CalendarContract.Events.HAS_ALARM, if (it.isNotEmpty()) 1 else 0) }
+                if (updateColor) putEventColor(this, readEventRowSnapshot(eventId)?.calendarId, eventColor)
             }
+            if (updateColor) setEventType(eventId, eventTypeId)
             val updated = if (values.size() == 0) {
                 1 // 필드는 안 바뀌고 알림만 바뀌는 경우도 있어, 0으로 취급해 호출부가 실패로 오인하지 않게 한다.
             } else {
@@ -347,6 +368,7 @@ class CalendarRepository(private val context: Context) : EventSource {
         val location: String,
         val description: String,
         val timeZoneId: String,
+        val eventColor: Int?,
     )
 
     private fun readEventRowSnapshot(eventId: Long): EventRowSnapshot? {
@@ -357,6 +379,7 @@ class CalendarRepository(private val context: Context) : EventSource {
             CalendarContract.Events.EVENT_LOCATION,
             CalendarContract.Events.DESCRIPTION,
             CalendarContract.Events.EVENT_TIMEZONE,
+            CalendarContract.Events.EVENT_COLOR,
         )
         val uri = ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId)
         return resolver.query(uri, projection, null, null, null)?.use { cursor ->
@@ -368,6 +391,7 @@ class CalendarRepository(private val context: Context) : EventSource {
                 location = cursor.getString(3).orEmpty(),
                 description = cursor.getString(4).orEmpty(),
                 timeZoneId = cursor.getString(5) ?: TimeZone.getDefault().id,
+                eventColor = if (cursor.isNull(6)) null else cursor.getInt(6).takeIf { it != 0 },
             )
         }
     }
@@ -384,9 +408,12 @@ class CalendarRepository(private val context: Context) : EventSource {
         description: String,
         reminderMinutes: List<Int>,
         rrule: String?,
+        eventColor: Int? = snapshot.eventColor,
+        eventTypeId: String? = null,
     ): Long {
         resolver.delete(ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId), null, null)
         provenanceDao.deleteByCalendarEventId(eventId)
+        eventTypeDao.deleteAssignment(eventId)
 
         val values = ContentValues().apply {
             put(CalendarContract.Events.CALENDAR_ID, snapshot.calendarId)
@@ -403,14 +430,54 @@ class CalendarRepository(private val context: Context) : EventSource {
             put(CalendarContract.Events.EVENT_LOCATION, location)
             put(CalendarContract.Events.DESCRIPTION, description)
             if (reminderMinutes.isNotEmpty()) put(CalendarContract.Events.HAS_ALARM, 1)
+            putEventColor(this, snapshot.calendarId, eventColor)
         }
         val newId = resolver.insert(CalendarContract.Events.CONTENT_URI, values)?.lastPathSegment?.toLongOrNull() ?: -1L
         if (newId > 0) {
             provenanceDao.insert(LocalEventProvenanceEntity(newId, snapshot.calendarId, System.currentTimeMillis()))
             replaceReminders(newId, reminderMinutes)
+            setEventType(newId, eventTypeId)
         }
         return newId
     }
+
+    /**
+     * 일정 색을 쓴다. 로컬 캘린더는 EVENT_COLOR에 그대로, 구글 등 색이 정해진 계정은 허용 색 중 가장 가까운 것의
+     * EVENT_COLOR_KEY로(Provider가 EVENT_COLOR를 채운다 — 그래야 구글 캘린더 웹에도 같은 색으로 동기화된다).
+     * [argb]가 null이면 둘 다 비워 캘린더 색으로 되돌린다.
+     */
+    private fun putEventColor(values: ContentValues, calendarId: Long?, argb: Int?) {
+        if (argb == null) {
+            values.putNull(CalendarContract.Events.EVENT_COLOR_KEY)
+            values.putNull(CalendarContract.Events.EVENT_COLOR)
+            return
+        }
+        val account = calendarId?.let { calendarAccount(it) }
+        if (account == null || account.second == CalendarContract.ACCOUNT_TYPE_LOCAL) {
+            values.putNull(CalendarContract.Events.EVENT_COLOR_KEY)
+            values.put(CalendarContract.Events.EVENT_COLOR, argb)
+            return
+        }
+        val nearest = nearestColor(argb, AccountEventColors.forAccount(context, account.first, account.second))
+        if (nearest != null) {
+            values.put(CalendarContract.Events.EVENT_COLOR_KEY, nearest.key)
+        } else {
+            values.put(CalendarContract.Events.EVENT_COLOR, argb)
+        }
+    }
+
+    private fun calendarAccount(calendarId: Long): Pair<String, String>? =
+        resolver.query(
+            ContentUris.withAppendedId(CalendarContract.Calendars.CONTENT_URI, calendarId),
+            arrayOf(CalendarContract.Calendars.ACCOUNT_NAME, CalendarContract.Calendars.ACCOUNT_TYPE),
+            null, null, null,
+        )?.use { c -> if (c.moveToFirst()) c.getString(0).orEmpty() to c.getString(1).orEmpty() else null }
+
+    private suspend fun setEventType(eventId: Long, typeId: String?) {
+        if (typeId == null) eventTypeDao.deleteAssignment(eventId) else eventTypeDao.assign(EventTypeAssignmentEntity(eventId, typeId))
+    }
+
+    suspend fun getEventTypeId(eventId: Long): String? = withContext(Dispatchers.IO) { eventTypeDao.typeIdFor(eventId) }
 
     /** 알림은 최대 5개까지만 저장한다(발송 자체는 P4). 전체 삭제 후 다시 넣는 방식이라 항상 요청한 목록과 정확히 일치한다. */
     private fun replaceReminders(eventId: Long, minutes: List<Int>) {
@@ -466,7 +533,10 @@ class CalendarRepository(private val context: Context) : EventSource {
             }
             val uri = ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId)
             val deleted = resolver.delete(uri, null, null)
-            if (deleted > 0) provenanceDao.deleteByCalendarEventId(eventId)
+            if (deleted > 0) {
+                provenanceDao.deleteByCalendarEventId(eventId)
+                eventTypeDao.deleteAssignment(eventId)
+            }
             deleted
         } catch (e: SecurityException) {
             Log.e(TAG, "deleteEvent failed", e)
@@ -581,6 +651,7 @@ class CalendarRepository(private val context: Context) : EventSource {
                 description = snapshot.description,
                 reminderMinutes = getReminders(masterEventId),
                 rrule = newRrule,
+                eventTypeId = eventTypeDao.typeIdFor(masterEventId),
             )
             newId > 0
         } catch (e: SecurityException) {

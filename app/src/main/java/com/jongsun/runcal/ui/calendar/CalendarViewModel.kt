@@ -6,6 +6,9 @@ import androidx.lifecycle.viewModelScope
 import com.jongsun.runcal.data.AppPreset
 import com.jongsun.runcal.data.AppSettingsRepository
 import com.jongsun.runcal.data.CalendarInfo
+import com.jongsun.runcal.data.EventStyleChoice
+import com.jongsun.runcal.data.parseCustomColorKey
+import com.jongsun.runcal.data.room.EventTypeEntity
 import com.jongsun.runcal.data.CalendarRepository
 import com.jongsun.runcal.data.backup.BackupPayload
 import com.jongsun.runcal.data.backup.BackupRestoreService
@@ -164,7 +167,7 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
         }
         viewModelScope.launch { refreshCalendars() }
         viewModelScope.launch { refreshNotionDatabases() }
-        viewModelScope.launch { refreshEventColorStyles() }
+        viewModelScope.launch { refreshEventColorStyles(); refreshEventTypes() }
     }
 
     suspend fun refreshCalendars() {
@@ -178,6 +181,39 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
     suspend fun refreshEventColorStyles() {
         _eventColorStyles.value = db.eventColorStyleDao().getAll().associateBy { it.sourceKey }
     }
+
+    private val _eventTypes = MutableStateFlow<List<EventTypeEntity>>(emptyList())
+    val eventTypes: StateFlow<List<EventTypeEntity>> = _eventTypes.asStateFlow()
+
+    suspend fun refreshEventTypes() {
+        _eventTypes.value = db.eventTypeDao().getAll()
+    }
+
+    suspend fun saveEventType(type: EventTypeEntity) {
+        db.eventTypeDao().upsert(type)
+        refreshEventTypes()
+    }
+
+    /** 유형을 지워도 이미 만든 일정의 색은 그대로 남는다(유형 표시만 사라짐). */
+    suspend fun deleteEventType(id: String) {
+        db.eventTypeDao().delete(id)
+        db.eventTypeDao().deleteAssignmentsOfType(id)
+        refreshEventTypes()
+    }
+
+    suspend fun getEventTypeId(eventId: Long): String? = repository.getEventTypeId(eventId)
+
+    /**
+     * 색 선택에 쓸 "이미 쓰이는 색": 모든 캘린더 색, Notion DB 색, 소스 색 스타일로 바꾼 색, 다른 유형 색.
+     * 추천색은 이것들과 최대한 멀리 떨어지게 고른다([recommendColors]).
+     */
+    fun usedColors(excludeTypeId: String? = null): List<Int> =
+        _calendars.value.map { it.color } +
+            _notionDatabases.value.map { it.colorArgb } +
+            _eventColorStyles.value.values.mapNotNull { s ->
+                parseCustomColorKey(s.paletteKey) ?: s.paletteKey?.let { k -> runCatching { com.jongsun.runcal.data.EventColorPaletteKey.valueOf(k).lightArgb }.getOrNull() }
+            } +
+            _eventTypes.value.filter { it.id != excludeTypeId }.map { it.colorArgb }
 
     /**
      * 소스 하나의 색상 스타일을 저장한다. [paletteKey]가 null이면 "시스템 기본"(오버라이드 해제).
@@ -302,8 +338,9 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
         description: String,
         reminderMinutes: List<Int>,
         rrule: String? = null,
+        style: EventStyleChoice? = null,
     ): Long {
-        val id = repository.createEvent(calendarId, title, startMillis, endMillis, allDay, location, description, reminderMinutes, rrule = rrule)
+        val id = repository.createEvent(calendarId, title, startMillis, endMillis, allDay, location, description, reminderMinutes, rrule = rrule, eventColor = style?.eventColor, eventTypeId = style?.typeId)
         if (id > 0) {
             invalidateCache()
             ensureMonthLoaded(_visibleYearMonth.value, force = true)
@@ -323,8 +360,11 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
         description: String,
         reminderMinutes: List<Int>,
         rrule: String? = null,
+        style: EventStyleChoice? = null,
     ): Int {
-        val updated = repository.updateEvent(eventId, title, startMillis, endMillis, allDay, location, description, reminderMinutes, rrule = rrule)
+        val updated = repository.updateEvent(eventId, title, startMillis, endMillis, allDay, location, description, reminderMinutes, rrule = rrule,
+            updateColor = style != null, eventColor = style?.eventColor, eventTypeId = style?.typeId,
+        )
         if (updated > 0) {
             invalidateCache()
             ensureMonthLoaded(_visibleYearMonth.value, force = true)
@@ -370,10 +410,12 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
         location: String,
         description: String,
         reminderMinutes: List<Int>,
+        style: EventStyleChoice? = null,
     ): Long {
         val id = repository.createExceptionEvent(
             masterEventId, originalInstanceBeginMillis, title, startMillis, endMillis, allDay, location, description, reminderMinutes,
         )
+        if (id > 0 && style != null) repository.updateEvent(id, updateColor = true, eventColor = style.eventColor, eventTypeId = style.typeId)
         if (id > 0) {
             invalidateCache()
             ensureMonthLoaded(_visibleYearMonth.value, force = true)
@@ -413,11 +455,15 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
         description: String,
         reminderMinutes: List<Int>,
         newRrule: String?,
+        style: EventStyleChoice? = null,
     ): Long {
+        // 새 시리즈는 따로 지정하지 않으면 원래 시리즈의 색·유형을 이어받는다.
+        val inherited = style ?: EventStyleChoice(repository.getEventById(masterEventId)?.eventColor, repository.getEventTypeId(masterEventId))
         val truncated = repository.truncateSeriesBefore(masterEventId, masterRrule, splitInstanceBeginMillis, masterAllDay)
         if (!truncated) return -1L
         val newId = repository.createEvent(
             calendarId, title, startMillis, endMillis, allDay, location, description, reminderMinutes, rrule = newRrule,
+            eventColor = inherited.eventColor, eventTypeId = inherited.typeId,
         )
         invalidateCache()
         ensureMonthLoaded(_visibleYearMonth.value, force = true)
@@ -559,6 +605,7 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
         refreshCalendars()
         refreshNotionDatabases()
         refreshEventColorStyles()
+        refreshEventTypes()
         invalidateCache()
         ensureMonthLoaded(_visibleYearMonth.value, force = true)
         RunCalWidgetRenderer.updateAllWidgets(getApplication())
