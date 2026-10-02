@@ -17,4 +17,9 @@
 
     <string name="runcal_today_vertical_widget_label">RunCal 오늘 (세로)</string>
     <string name="runcal_today_vertical_widget_description">오늘과 내일 일정 목록을 보여주는 RunCal 위젯</string>
+    <string name="runcal_todo_small_widget_label">RunCal 할일 (1x2)</string>
+    <string name="runcal_todo_tall_widget_label">RunCal 할일 (1x4)</string>
+    <string name="runcal_todo_wide4_widget_label">RunCal 할일 (4x1)</string>
+    <string name="runcal_todo_wide2_widget_label">RunCal 할일 (2x1)</string>
+    <string name="runcal_todo_widget_description">오늘(또는 오늘·내일) 일정을 전부 스크롤 목록으로 보여주는 RunCal 위젯</string>
 </resources>

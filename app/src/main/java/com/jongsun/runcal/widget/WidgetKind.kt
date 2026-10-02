@@ -12,6 +12,10 @@ val ALL_WIDGET_PROVIDER_CLASSES = listOf(
     RunCalTodayMiniWidgetProvider::class.java,
     RunCalTodayHorizontalWidgetProvider::class.java,
     RunCalTodayVerticalWidgetProvider::class.java,
+    RunCalTodoSmallWidgetProvider::class.java,
+    RunCalTodoTallWidgetProvider::class.java,
+    RunCalTodoWide4WidgetProvider::class.java,
+    RunCalTodoWide2WidgetProvider::class.java,
 )
 
 /** 현재 기기에 배치된 RunCal 위젯 인스턴스(6종 전체)의 appWidgetId를 전부 모은다. */
@@ -30,6 +34,7 @@ enum class WidgetKind {
     TODAY_MINI,
     TODAY_HORIZONTAL,
     TODAY_VERTICAL,
+    TODO_LIST,
     ;
 
     val isMonthly: Boolean get() = this == MONTHLY_EXPANDED || this == MONTHLY_STANDARD || this == MONTHLY_COMPACT
@@ -49,6 +54,9 @@ enum class WidgetKind {
                 RunCalTodayMiniWidgetProvider::class.java.name -> TODAY_MINI
                 RunCalTodayHorizontalWidgetProvider::class.java.name -> TODAY_HORIZONTAL
                 RunCalTodayVerticalWidgetProvider::class.java.name -> TODAY_VERTICAL
+                RunCalTodoSmallWidgetProvider::class.java.name, RunCalTodoTallWidgetProvider::class.java.name,
+                RunCalTodoWide4WidgetProvider::class.java.name, RunCalTodoWide2WidgetProvider::class.java.name,
+                -> TODO_LIST
                 else -> MONTHLY_EXPANDED
             }
         }

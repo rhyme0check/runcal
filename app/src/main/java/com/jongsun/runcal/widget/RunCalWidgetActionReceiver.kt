@@ -36,6 +36,8 @@ class RunCalWidgetActionReceiver : BroadcastReceiver() {
                         WidgetActionContract.ACTION_NAV_PREV -> shiftMonth(context, appWidgetId, -1)
                         WidgetActionContract.ACTION_NAV_NEXT -> shiftMonth(context, appWidgetId, 1)
                         WidgetActionContract.ACTION_JUMP_TODAY -> jumpToday(context, appWidgetId)
+                        WidgetActionContract.ACTION_TOGGLE_TODO_RANGE ->
+                            applyWidgetState(context, appWidgetId) { it.copy(todoIncludeTomorrow = !it.todoIncludeTomorrow) }
                         else -> Log.e(TAG, "RunCalWidgetActionReceiver: unknown action=$action id=$appWidgetId")
                     }
                 }

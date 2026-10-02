@@ -51,6 +51,8 @@ data class WidgetFilterSettings(
     /** true면 앱·위젯 연동이 켜져 있어도 이 위젯은 [presetId]에 고정된다. */
     val presetPinned: Boolean = false,
     val legacyPresetsMigrated: Boolean = false,
+    /** 할일 목록 위젯: true면 오늘+내일, false면 오늘만. */
+    val todoIncludeTomorrow: Boolean = false,
     val fontScaleStep: Int = DEFAULT_FONT_SCALE_STEP,
     val backgroundOpacity: Float = DEFAULT_BACKGROUND_OPACITY,
     val viewingYearMonth: YearMonth? = null,

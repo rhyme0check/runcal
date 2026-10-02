@@ -536,6 +536,10 @@ private val PLACED_WIDGET_KINDS = listOf(
     WidgetKindEntry(RunCalTodayMiniWidgetProvider::class.java, R.string.runcal_today_mini_widget_label),
     WidgetKindEntry(RunCalTodayHorizontalWidgetProvider::class.java, R.string.runcal_today_horizontal_widget_label),
     WidgetKindEntry(RunCalTodayVerticalWidgetProvider::class.java, R.string.runcal_today_vertical_widget_label),
+    WidgetKindEntry(com.jongsun.runcal.widget.RunCalTodoSmallWidgetProvider::class.java, R.string.runcal_todo_small_widget_label),
+    WidgetKindEntry(com.jongsun.runcal.widget.RunCalTodoTallWidgetProvider::class.java, R.string.runcal_todo_tall_widget_label),
+    WidgetKindEntry(com.jongsun.runcal.widget.RunCalTodoWide4WidgetProvider::class.java, R.string.runcal_todo_wide4_widget_label),
+    WidgetKindEntry(com.jongsun.runcal.widget.RunCalTodoWide2WidgetProvider::class.java, R.string.runcal_todo_wide2_widget_label),
 )
 
 /** 배치된 위젯 목록(6종 전체) → 각 위젯 설정 진입. (기존 MainActivity 디버그 화면에서 이관) */

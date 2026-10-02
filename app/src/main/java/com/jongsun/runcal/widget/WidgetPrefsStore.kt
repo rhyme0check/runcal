@@ -22,6 +22,7 @@ private object Keys {
     const val PRESET_ID = "preset_id"
     const val PRESET_PINNED = "preset_pinned"
     const val LEGACY_MIGRATED = "legacy_presets_migrated"
+    const val TODO_INCLUDE_TOMORROW = "todo_include_tomorrow"
 }
 
 private fun prefsFor(context: Context, appWidgetId: Int): SharedPreferences =
@@ -64,6 +65,7 @@ private fun SharedPreferences.toWidgetFilterSettings(): WidgetFilterSettings {
         presetId = getString(Keys.PRESET_ID, null),
         presetPinned = getBoolean(Keys.PRESET_PINNED, false),
         legacyPresetsMigrated = getBoolean(Keys.LEGACY_MIGRATED, false),
+        todoIncludeTomorrow = getBoolean(Keys.TODO_INCLUDE_TOMORROW, false),
     )
 }
 
@@ -83,6 +85,7 @@ private fun SharedPreferences.Editor.applyWidgetFilterSettings(settings: WidgetF
     if (settings.presetId == null) remove(Keys.PRESET_ID) else putString(Keys.PRESET_ID, settings.presetId)
     putBoolean(Keys.PRESET_PINNED, settings.presetPinned)
     putBoolean(Keys.LEGACY_MIGRATED, settings.legacyPresetsMigrated)
+    putBoolean(Keys.TODO_INCLUDE_TOMORROW, settings.todoIncludeTomorrow)
     return this
 }
 
@@ -171,6 +174,7 @@ suspend fun saveWidgetFilterSettings(
     // 구버전 백업 복원 전용: 위젯별 프리셋 목록을 되살린 뒤 다음 렌더에서 앱 프리셋으로 다시 이전되게 한다.
     legacyPresets: List<WidgetPreset>? = null,
     legacyPresetIndex: Int = 0,
+    todoIncludeTomorrow: Boolean? = null,
 ) {
     Log.d(
         TAG,
@@ -189,6 +193,7 @@ suspend fun saveWidgetFilterSettings(
             showWeekNumber = showWeekNumber,
             showLunar = showLunar ?: current.showLunar,
             presetPinned = presetPinned ?: current.presetPinned,
+            todoIncludeTomorrow = todoIncludeTomorrow ?: current.todoIncludeTomorrow,
             presetId = if (presetPinned != null) presetId ?: current.presetId else current.presetId,
         )
     }

@@ -9,6 +9,7 @@ import android.net.Uri
 import android.util.Log
 import android.util.TypedValue
 import android.view.View
+import android.view.ViewGroup
 import android.widget.RemoteViews
 import com.jongsun.runcal.MainActivity
 import com.jongsun.runcal.R
@@ -43,6 +44,7 @@ object WidgetActionContract {
     const val ACTION_NAV_PREV = "com.jongsun.runcal.widget.ACTION_NAV_PREV"
     const val ACTION_NAV_NEXT = "com.jongsun.runcal.widget.ACTION_NAV_NEXT"
     const val ACTION_JUMP_TODAY = "com.jongsun.runcal.widget.ACTION_JUMP_TODAY"
+    const val ACTION_TOGGLE_TODO_RANGE = "com.jongsun.runcal.widget.ACTION_TOGGLE_TODO_RANGE"
 }
 
 private const val SLOT_OPEN_APP = 1
@@ -52,6 +54,8 @@ private const val SLOT_NAV_PREV = 4
 private const val SLOT_NAV_NEXT = 5
 private const val SLOT_JUMP_TODAY = 6
 private const val SLOT_PERMISSION_OPEN_APP = 7
+private const val SLOT_TODO_TOGGLE = 8
+private const val SLOT_TODO_ITEM = 9
 private const val DAY_CELL_SLOT_BASE = 100 // 100..141 (6주 x 7일)
 private const val EVENT_ROW_SLOT_BASE = 200 // 200..249: 오늘, 250..299: 내일(세로 위젯)
 private const val EVENT_ROW_SLOT_TOMORROW_OFFSET = 50
@@ -95,15 +99,7 @@ object RunCalWidgetRenderer {
     /** 캘린더 데이터 변경 등 특정 위젯 인스턴스를 특정할 수 없는 경우, 배치된 모든 인스턴스(6종 전부)를 갱신한다. */
     suspend fun updateAllWidgets(context: Context) {
         val manager = AppWidgetManager.getInstance(context)
-        val providerClasses = listOf(
-            RunCalCalendarWidgetProvider::class.java,
-            RunCalMonthlyStandardWidgetProvider::class.java,
-            RunCalMonthlyCompactWidgetProvider::class.java,
-            RunCalTodayMiniWidgetProvider::class.java,
-            RunCalTodayHorizontalWidgetProvider::class.java,
-            RunCalTodayVerticalWidgetProvider::class.java,
-        )
-        providerClasses.forEach { providerClass ->
+        ALL_WIDGET_PROVIDER_CLASSES.forEach { providerClass ->
             manager.getAppWidgetIds(ComponentName(context, providerClass)).forEach { appWidgetId ->
                 updateWidget(context, appWidgetId)
             }
@@ -126,6 +122,7 @@ object RunCalWidgetRenderer {
             WidgetKind.TODAY_MINI -> renderTodayMini(context, appWidgetId)
             WidgetKind.TODAY_HORIZONTAL -> renderTodayHorizontal(context, appWidgetId)
             WidgetKind.TODAY_VERTICAL -> renderTodayVertical(context, appWidgetId)
+            WidgetKind.TODO_LIST -> renderTodoList(context, appWidgetId)
         }
     }
 
@@ -612,6 +609,117 @@ object RunCalWidgetRenderer {
 
         Log.d(TAG, "renderTodayVertical: appWidgetId=$appWidgetId built in ${System.currentTimeMillis() - renderStartMillis}ms")
         return root
+    }
+
+    // ---------------------------------------------------------------------
+    // 할일 목록(1x2/1x4) — 오늘(또는 오늘·내일) 일정을 스크롤 목록으로 전부 보여준다.
+    // ---------------------------------------------------------------------
+
+    private suspend fun renderTodoList(context: Context, appWidgetId: Int): RemoteViews {
+        val renderStartMillis = System.currentTimeMillis()
+        val settings = loadWidgetFilterSettings(context, appWidgetId)
+        val preset = resolveWidgetPreset(context, appWidgetId, settings)
+        val backgroundColorInt = resolveBackgroundColorInt(context, settings.backgroundOpacity)
+        val zone = ZoneId.systemDefault()
+        val today = LocalDate.now()
+        val days = if (settings.todoIncludeTomorrow) listOf(today, today.plusDays(1)) else listOf(today)
+        val allEvents = fetchEventsForDateRange(context, preset, today, today.plusDays(days.size.toLong()), zone)
+        val resolvedColors = resolveEventColors(context, allEvents)
+
+        // 가로형(4x1·2x1)이거나 높이가 한 줄뿐이면 왼쪽 버튼 + 오른쪽 한 줄 목록 배치를 쓴다.
+        val options = AppWidgetManager.getInstance(context).getAppWidgetOptions(appWidgetId)
+        val providerName = AppWidgetManager.getInstance(context).getAppWidgetInfo(appWidgetId)?.provider?.className
+        val heightDp = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, 0)
+        val compact = providerName == RunCalTodoWide4WidgetProvider::class.java.name ||
+            providerName == RunCalTodoWide2WidgetProvider::class.java.name ||
+            heightDp in 1 until 100
+        val root = RemoteViews(context.packageName, if (compact) R.layout.widget_todo_wide else R.layout.widget_todo)
+        root.setInt(R.id.widget_background, "setColorFilter", backgroundColorInt)
+        bindPresetChip(context, root, appWidgetId, preset)
+        // 1칸 폭에서는 프리셋 이름이 "…"로만 남아 의미가 없으니 색 점만 보이고, 범위 표시도 짧게 쓴다.
+        val widthDp = AppWidgetManager.getInstance(context).getAppWidgetOptions(appWidgetId)
+            .getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 0)
+        // 가로형은 왼쪽 열 폭이 한정돼 있어 2x1에서는 이름을 숨기고, 4x1에서는 보인다.
+        val narrow = if (compact) widthDp in 1 until 220 else widthDp in 1 until 120
+        root.setViewVisibility(R.id.preset_name, if (narrow) View.GONE else View.VISIBLE)
+        if (compact) {
+            // 2x1은 왼쪽 열을 최소로 줄여 제목 폭을 확보하고, 4x1은 프리셋 이름까지 들어가게 내용 폭에 맞춘다.
+            if (narrow) {
+                root.setViewLayoutWidth(R.id.todo_side, 36f, TypedValue.COMPLEX_UNIT_DIP)
+            } else {
+                root.setViewLayoutWidth(R.id.todo_side, ViewGroup.LayoutParams.WRAP_CONTENT.toFloat(), TypedValue.COMPLEX_UNIT_PX)
+            }
+        }
+        root.setTextViewText(
+            R.id.todo_range_toggle,
+            when {
+                !settings.todoIncludeTomorrow -> "오늘"
+                narrow -> "+내일"
+                else -> "오늘·내일"
+            },
+        )
+        root.setTextColor(R.id.todo_range_toggle, RunCalWidgetColorRes.accent(context))
+        root.setOnClickPendingIntent(
+            R.id.todo_range_toggle,
+            broadcastPendingIntent(context, appWidgetId, SLOT_TODO_TOGGLE, WidgetActionContract.ACTION_TOGGLE_TODO_RANGE),
+        )
+
+        // 목록 항목 탭 → 그 날짜로 앱 진입. 항목마다 PendingIntent를 만들 수 없어(컬렉션 위젯 규칙) 템플릿 + fill-in으로 처리한다.
+        val template = Intent(context, MainActivity::class.java).apply { data = Uri.parse("runcal://widget/$appWidgetId/todo") }
+        root.setPendingIntentTemplate(
+            R.id.todo_list,
+            PendingIntent.getActivity(
+                context,
+                requestCode(appWidgetId, SLOT_TODO_ITEM),
+                template,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE,
+            ),
+        )
+
+        val items = RemoteViews.RemoteCollectionItems.Builder().setHasStableIds(false).setViewTypeCount(2)
+        var rowCount = 0
+        days.forEach { date ->
+            val dayEvents = allEvents.filter { it.occursOn(date, zone) }.sortedWith(compareBy({ !it.allDay }, { it.begin }))
+            if (days.size > 1 || dayEvents.isNotEmpty()) {
+                val label = (if (date == today) "오늘" else "내일") + " ${date.monthValue}/${date.dayOfMonth}"
+                val section = RemoteViews(context.packageName, if (compact) R.layout.widget_todo_section_compact else R.layout.widget_todo_section)
+                section.setTextViewText(R.id.todo_section_label, if (dayEvents.isEmpty()) "$label · 없음" else label)
+                section.setTextColor(R.id.todo_section_label, RunCalWidgetColorRes.onBackground(context))
+                section.setOnClickFillInIntent(R.id.todo_section_label, todoFillIn(date, preset.id))
+                items.addItem(rowCount.toLong(), section)
+                rowCount++
+            }
+            dayEvents.forEach { event ->
+                val row = RemoteViews(context.packageName, if (compact) R.layout.widget_todo_row_compact else R.layout.widget_todo_row)
+                row.setInt(R.id.todo_row_dot, "setColorFilter", resolvedColors[event.id]?.backgroundArgb ?: event.color)
+                row.setTextViewText(R.id.todo_row_time, formatEventTime(event, zone))
+                row.setTextColor(R.id.todo_row_time, RunCalWidgetColorRes.onBackgroundDim(context))
+                if (compact && narrow) row.setInt(R.id.todo_row_time, "setMinWidth", 0)
+                row.setTextViewText(R.id.todo_row_title, event.title.ifBlank { "(제목 없음)" })
+                row.setTextColor(R.id.todo_row_title, RunCalWidgetColorRes.onBackground(context))
+                row.setOnClickFillInIntent(R.id.todo_row_root, todoFillIn(event.dateRange(zone).start, preset.id))
+                items.addItem(rowCount.toLong(), row)
+                rowCount++
+            }
+        }
+        root.setRemoteAdapter(R.id.todo_list, items.build())
+        val empty = rowCount == 0
+        root.setViewVisibility(R.id.todo_list, if (empty) View.GONE else View.VISIBLE)
+        root.setViewVisibility(R.id.todo_empty, if (empty) View.VISIBLE else View.GONE)
+        root.setTextColor(R.id.todo_empty, RunCalWidgetColorRes.onBackgroundDim(context))
+        root.setTextViewText(R.id.todo_empty, if (settings.todoIncludeTomorrow) "오늘·내일 일정 없음" else "오늘 일정 없음")
+        root.setOnClickPendingIntent(
+            R.id.todo_empty,
+            activityPendingIntent(context, appWidgetId, SLOT_OPEN_APP, openAppIntent(context, null, preset.id)),
+        )
+
+        Log.d(TAG, "renderTodoList: appWidgetId=$appWidgetId rows=$rowCount built in ${System.currentTimeMillis() - renderStartMillis}ms")
+        return root
+    }
+
+    private fun todoFillIn(date: LocalDate, presetId: String): Intent = Intent().apply {
+        putExtra(MainActivity.EXTRA_TARGET_DATE_EPOCH_DAY, date.toEpochDay())
+        putExtra(MainActivity.EXTRA_PRESET_ID, presetId)
     }
 
     /** 프리셋 칩(색 점 + 이름) 바인딩. 월간/오늘 위젯이 전부 이 UI를 공유한다. */

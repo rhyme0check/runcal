@@ -138,6 +138,8 @@ private fun WidgetConfigScreen(
     var opacity by remember { mutableFloatStateOf(DEFAULT_BACKGROUND_OPACITY) }
     var showWeekNumber by remember { mutableStateOf(false) }
     var showLunar by remember { mutableStateOf(false) }
+    var todoIncludeTomorrow by remember { mutableStateOf(false) }
+    val isTodoWidget = remember(appWidgetId) { WidgetKind.forAppWidgetId(context, appWidgetId) == WidgetKind.TODO_LIST }
     var loaded by remember { mutableStateOf(false) }
     // 위젯 종류에 따라 불필요한 항목(예: 오늘 위젯의 주차 번호)을 숨긴다.
     val isMonthlyWidget = remember(appWidgetId) { WidgetKind.forAppWidgetId(context, appWidgetId).isMonthly }
@@ -159,6 +161,7 @@ private fun WidgetConfigScreen(
         opacity = latest.backgroundOpacity
         showWeekNumber = latest.showWeekNumber
         showLunar = latest.showLunar
+        todoIncludeTomorrow = latest.todoIncludeTomorrow
         loaded = true
     }
 
@@ -232,6 +235,20 @@ private fun WidgetConfigScreen(
                 valueRange = 0f..1f,
             )
 
+            if (isTodoWidget) {
+                Text(text = "표시 범위", style = MaterialTheme.typography.titleMedium)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    RadioButton(selected = !todoIncludeTomorrow, onClick = { todoIncludeTomorrow = false })
+                    Text("오늘만", style = MaterialTheme.typography.bodyMedium)
+                    RadioButton(selected = todoIncludeTomorrow, onClick = { todoIncludeTomorrow = true })
+                    Text("오늘·내일", style = MaterialTheme.typography.bodyMedium)
+                }
+                Text(
+                    text = "위젯 오른쪽 위 버튼으로도 바로 바꿀 수 있습니다.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             if (isMonthlyWidget) {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                     Checkbox(checked = showWeekNumber, onCheckedChange = { showWeekNumber = it })
@@ -265,6 +282,7 @@ private fun WidgetConfigScreen(
                             showLunar = showLunar,
                             presetPinned = if (linkEnabled) pinned else false,
                             presetId = pinnedPresetId,
+                            todoIncludeTomorrow = todoIncludeTomorrow,
                         )
                         onSaved()
                     }
