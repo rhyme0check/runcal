@@ -16,11 +16,12 @@
         android:orientation="vertical"
         android:padding="10dp">
 
-        <!-- 헤더 1단: 프리셋 칩(좌) + 빈 영역(가운데, 탭 시 앱 실행) + 짧은 연월 버튼(우) -->
+        <!-- 헤더(한 줄): 프리셋 칩 | ◀ 전월 | 연월(탭 시 연월 빠른 선택) | ▶ 다음달 | 오늘.
+             손가락으로 누르기 쉽게 높이 44dp, 화살표는 48dp 폭으로 잡는다. -->
         <LinearLayout
-            android:id="@+id/header_row1"
+            android:id="@+id/header_row"
             android:layout_width="match_parent"
-            android:layout_height="26dp"
+            android:layout_height="44dp"
             android:orientation="horizontal"
             android:gravity="center_vertical">
 
@@ -30,55 +31,33 @@
                 android:layout_height="match_parent"
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
-                android:paddingStart="10dp"
-                android:paddingEnd="10dp">
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp">
 
                 <ImageView
                     android:id="@+id/preset_dot"
-                    android:layout_width="8dp"
-                    android:layout_height="8dp"
+                    android:layout_width="10dp"
+                    android:layout_height="10dp"
                     android:src="@drawable/widget_dot" />
 
                 <TextView
                     android:id="@+id/preset_name"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="4dp"
+                    android:layout_marginStart="5dp"
+                    android:maxWidth="84dp"
+                    android:ellipsize="end"
                     android:maxLines="1"
-                    android:textSize="11sp" />
+                    android:textSize="12sp" />
             </LinearLayout>
-
-            <FrameLayout
-                android:id="@+id/open_app_spacer"
-                android:layout_width="0dp"
-                android:layout_height="match_parent"
-                android:layout_weight="1" />
-
-            <TextView
-                android:id="@+id/short_yearmonth_button"
-                android:layout_width="wrap_content"
-                android:layout_height="match_parent"
-                android:gravity="center"
-                android:paddingStart="10dp"
-                android:paddingEnd="10dp"
-                android:textSize="11sp" />
-        </LinearLayout>
-
-        <!-- 헤더 2단: ◀ 전월 / 중앙 연월(탭 시 오늘로) / ▶ 다음달 -->
-        <LinearLayout
-            android:id="@+id/header_row2"
-            android:layout_width="match_parent"
-            android:layout_height="32dp"
-            android:orientation="horizontal"
-            android:gravity="center_vertical">
 
             <TextView
                 android:id="@+id/nav_prev"
-                android:layout_width="36dp"
+                android:layout_width="48dp"
                 android:layout_height="match_parent"
                 android:gravity="center"
                 android:text="◀"
-                android:textSize="14sp" />
+                android:textSize="16sp" />
 
             <TextView
                 android:id="@+id/month_title"
@@ -86,17 +65,43 @@
                 android:layout_height="match_parent"
                 android:layout_weight="1"
                 android:gravity="center"
+                android:maxLines="1"
                 android:textStyle="bold"
-                android:textSize="14sp" />
+                android:textSize="15sp" />
 
             <TextView
                 android:id="@+id/nav_next"
-                android:layout_width="36dp"
+                android:layout_width="48dp"
                 android:layout_height="match_parent"
                 android:gravity="center"
                 android:text="▶"
-                android:textSize="14sp" />
+                android:textSize="16sp" />
+
+            <TextView
+                android:id="@+id/today_button"
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:minWidth="48dp"
+                android:gravity="center"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp"
+                android:text="오늘"
+                android:textSize="13sp" />
+
+            <!-- 구버전 호환용 자리(보이지 않음). 앱 열기는 날짜 칸을 누르면 된다. -->
+            <FrameLayout
+                android:id="@+id/open_app_spacer"
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/short_yearmonth_button"
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:visibility="gone" />
         </LinearLayout>
+
 
         <FrameLayout
             android:layout_width="match_parent"

@@ -282,12 +282,6 @@ object RunCalWidgetRenderer {
             R.id.open_app_spacer,
             activityPendingIntent(context, appWidgetId, SLOT_OPEN_APP, openAppIntent(context, displayedYearMonth, preset.id)),
         )
-        root.setTextViewText(R.id.short_yearmonth_button, shortYearMonthLabel(displayedYearMonth))
-        root.setTextColor(R.id.short_yearmonth_button, RunCalWidgetColorRes.onBackground(context))
-        root.setOnClickPendingIntent(
-            R.id.short_yearmonth_button,
-            activityPendingIntent(context, appWidgetId, SLOT_PICKER, pickerIntent(context, appWidgetId)),
-        )
     }
 
     private fun bindHeaderRow2(
@@ -312,8 +306,14 @@ object RunCalWidgetRenderer {
             R.id.month_title,
             if (isCurrentMonth) RunCalWidgetColorRes.onBackground(context) else RunCalWidgetColorRes.accent(context),
         )
+        // 연월 제목을 누르면 연월 빠른 선택, 오른쪽 "오늘"은 이번 달로 복귀.
         root.setOnClickPendingIntent(
             R.id.month_title,
+            activityPendingIntent(context, appWidgetId, SLOT_PICKER, pickerIntent(context, appWidgetId)),
+        )
+        root.setTextColor(R.id.today_button, if (isCurrentMonth) RunCalWidgetColorRes.onBackgroundDim(context) else RunCalWidgetColorRes.accent(context))
+        root.setOnClickPendingIntent(
+            R.id.today_button,
             broadcastPendingIntent(context, appWidgetId, SLOT_JUMP_TODAY, WidgetActionContract.ACTION_JUMP_TODAY),
         )
     }
@@ -771,13 +771,6 @@ private fun dayNumberColor(context: Context, day: MonthGridDay, isHoliday: Boole
         DayOfWeek.SATURDAY -> RunCalWidgetColorRes.saturday(context)
         else -> RunCalWidgetColorRes.onBackground(context)
     }
-}
-
-/** yy.MM 형식의 짧은 연월 라벨(예: 2026년 9월 → "26.09"). */
-private fun shortYearMonthLabel(yearMonth: YearMonth): String {
-    val yy = (yearMonth.year % 100).toString().padStart(2, '0')
-    val mm = yearMonth.monthValue.toString().padStart(2, '0')
-    return "$yy.$mm"
 }
 
 private fun requestCode(appWidgetId: Int, slot: Int): Int = appWidgetId * 1000 + slot
