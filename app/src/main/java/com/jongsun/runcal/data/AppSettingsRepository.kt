@@ -54,6 +54,9 @@ data class AppSettings(
     val remindersEnabled: Boolean = true,
     // 새 일정 생성 시 기본으로 추가할 알림 오프셋(분). null = 알림 없이 시작.
     val defaultReminderMinutes: Int? = DEFAULT_REMINDER_MINUTES,
+    // 앱·위젯 프리셋 연동. 켜면 앱에서 고른 프리셋을 (고정 안 한) 위젯이 따라가고, 위젯에서 고르거나 위젯을
+    // 눌러 앱에 들어오면 앱도 그 프리셋으로 바뀐다. 끄면 정의(목록)만 공유하고 선택은 각자 한다.
+    val presetLinkEnabled: Boolean = true,
 )
 
 class AppSettingsRepository(private val context: Context) {
@@ -74,6 +77,7 @@ class AppSettingsRepository(private val context: Context) {
         // DEFAULT_REMINDER_MINUTES가 "알림 없음"(null)인지 "저장된 적 없음"(기본값 적용)인지
         // 구분하기 위한 별도 플래그 — IntPreferencesKey는 null을 직접 저장할 수 없다.
         val DEFAULT_REMINDER_NONE = booleanPreferencesKey("default_reminder_none")
+        val PRESET_LINK_ENABLED = booleanPreferencesKey("preset_link_enabled")
     }
 
     val settings: Flow<AppSettings> = context.appSettingsDataStore.data.map { prefs ->
@@ -98,6 +102,7 @@ class AppSettingsRepository(private val context: Context) {
             } else {
                 prefs[Keys.DEFAULT_REMINDER_MINUTES] ?: DEFAULT_REMINDER_MINUTES
             },
+            presetLinkEnabled = prefs[Keys.PRESET_LINK_ENABLED] ?: true,
         )
     }
 
@@ -127,10 +132,31 @@ class AppSettingsRepository(private val context: Context) {
         context.appSettingsDataStore.edit { prefs ->
             prefs[Keys.PRESETS] = Json.encodeToString(appPresetListSerializer, presets)
         }
+        SharedPresets.invalidate()
     }
 
     suspend fun setActivePresetId(id: String) {
         context.appSettingsDataStore.edit { prefs -> prefs[Keys.ACTIVE_PRESET_ID] = id }
+        SharedPresets.invalidate()
+    }
+
+    /**
+     * 프리셋을 앱에 적용한다 — 표시 캘린더/Notion DB를 프리셋 값으로 덮어쓰고 활성 프리셋으로 표시한다(한 번의 쓰기).
+     * notionDatabaseIds의 null(="Notion 없음")은 emptySet()으로 바꿔 저장한다(그대로 두면 "전체"로 해석됨).
+     */
+    suspend fun applyPreset(preset: AppPreset) {
+        context.appSettingsDataStore.edit { prefs ->
+            val ids = preset.calendarIds
+            if (ids == null) prefs.remove(Keys.VISIBLE_CALENDAR_IDS) else prefs[Keys.VISIBLE_CALENDAR_IDS] = ids.map { it.toString() }.toSet()
+            prefs[Keys.VISIBLE_NOTION_DATABASE_IDS] = preset.notionDatabaseIds ?: emptySet()
+            prefs[Keys.ACTIVE_PRESET_ID] = preset.id
+        }
+        SharedPresets.invalidate()
+    }
+
+    suspend fun setPresetLinkEnabled(enabled: Boolean) {
+        context.appSettingsDataStore.edit { prefs -> prefs[Keys.PRESET_LINK_ENABLED] = enabled }
+        SharedPresets.invalidate()
     }
 
     /** 저장만 한다 — 실제로 WorkManager 주기를 바꾸는 건 호출부(3단계 설정 UI)의 몫이다. */

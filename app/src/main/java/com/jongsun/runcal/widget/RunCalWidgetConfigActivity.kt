@@ -54,7 +54,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.jongsun.runcal.CalendarObserverManager
+import androidx.compose.material3.RadioButton
+import com.jongsun.runcal.data.AppPreset
 import com.jongsun.runcal.data.CALENDAR_PERMISSIONS
+import com.jongsun.runcal.data.SharedPresets
 import com.jongsun.runcal.data.CalendarInfo
 import com.jongsun.runcal.data.CalendarRepository
 import com.jongsun.runcal.data.hasCalendarPermissions
@@ -103,13 +106,6 @@ class RunCalWidgetConfigActivity : ComponentActivity() {
     }
 }
 
-private fun newPreset(index: Int, calendars: List<CalendarInfo>): WidgetPreset = WidgetPreset(
-    id = UUID.randomUUID().toString(),
-    name = "프리셋 ${index + 1}",
-    colorArgb = PRESET_COLOR_PALETTE[index % PRESET_COLOR_PALETTE.size],
-    calendarIds = calendars.map { it.id }.toSet(),
-)
-
 @Composable
 private fun WidgetConfigScreen(
     appWidgetId: Int,
@@ -134,11 +130,10 @@ private fun WidgetConfigScreen(
         if (!permissionGranted) permissionLauncher.launch(CALENDAR_PERMISSIONS)
     }
 
-    var calendars by remember { mutableStateOf<List<CalendarInfo>>(emptyList()) }
-    var notionDatabases by remember { mutableStateOf<List<NotionDatabaseEntity>>(emptyList()) }
-    var presets by remember { mutableStateOf<List<WidgetPreset>>(emptyList()) }
-    var currentPresetIndex by remember { mutableIntStateOf(0) }
-    var expandedPresetId by remember { mutableStateOf<String?>(null) }
+    var presets by remember { mutableStateOf<List<AppPreset>>(emptyList()) }
+    var linkEnabled by remember { mutableStateOf(true) }
+    var pinned by remember { mutableStateOf(false) }
+    var pinnedPresetId by remember { mutableStateOf<String?>(null) }
     var fontStep by remember { mutableIntStateOf(DEFAULT_FONT_SCALE_STEP) }
     var opacity by remember { mutableFloatStateOf(DEFAULT_BACKGROUND_OPACITY) }
     var showWeekNumber by remember { mutableStateOf(false) }
@@ -149,22 +144,21 @@ private fun WidgetConfigScreen(
     // 음력은 공간이 넉넉한 4x5 월간 확장 위젯에서만 그린다.
     val isExpandedWidget = remember(appWidgetId) { WidgetKind.forAppWidgetId(context, appWidgetId) == WidgetKind.MONTHLY_EXPANDED }
 
-    // Notion 연동은 캘린더 권한과 무관하므로 별도로, 바로 불러온다.
-    LaunchedEffect(Unit) {
-        notionDatabases = RunCalDatabase.getInstance(context).notionDatabaseDao().getAll()
-    }
-
     LaunchedEffect(permissionGranted) {
         if (!permissionGranted) return@LaunchedEffect
         val existing = loadWidgetFilterSettings(context, appWidgetId)
-        val loadedCalendars = repository.getCalendars()
-        calendars = loadedCalendars
-        presets = existing.presets.ifEmpty { listOf(newPreset(0, loadedCalendars)) }
-        currentPresetIndex = existing.currentPresetIndex
-        fontStep = existing.fontScaleStep
-        opacity = existing.backgroundOpacity
-        showWeekNumber = existing.showWeekNumber
-        showLunar = existing.showLunar
+        // 구버전 위젯 프리셋이 남아 있으면 이 시점에 앱 목록으로 옮겨 둔다(목록에 바로 보이도록).
+        val current = resolveWidgetPreset(context, appWidgetId, existing)
+        val shared = SharedPresets.snapshot(context)
+        val latest = loadWidgetFilterSettings(context, appWidgetId)
+        presets = shared.presets
+        linkEnabled = shared.linkEnabled
+        pinned = latest.presetPinned
+        pinnedPresetId = latest.presetId ?: current.id
+        fontStep = latest.fontScaleStep
+        opacity = latest.backgroundOpacity
+        showWeekNumber = latest.showWeekNumber
+        showLunar = latest.showLunar
         loaded = true
     }
 
@@ -186,47 +180,39 @@ private fun WidgetConfigScreen(
         } else {
             Text(text = "프리셋", style = MaterialTheme.typography.titleMedium)
             Text(
-                text = "위젯 헤더의 색상 칩을 탭하면 아래 순서로 순환합니다.",
+                text = "프리셋 목록은 앱과 함께 씁니다. 추가·편집은 앱의 설정 > 필터 프리셋에서 하세요.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-
-            presets.forEachIndexed { index, preset ->
-                PresetEditorCard(
-                    preset = preset,
-                    calendars = calendars,
-                    notionDatabases = notionDatabases,
-                    expanded = expandedPresetId == preset.id,
-                    canDelete = presets.size > 1,
-                    onToggleExpand = {
-                        expandedPresetId = if (expandedPresetId == preset.id) null else preset.id
-                    },
-                    onNameChange = { newName ->
-                        presets = presets.toMutableList().apply { this[index] = preset.copy(name = newName) }
-                    },
-                    onColorChange = { newColor ->
-                        presets = presets.toMutableList().apply { this[index] = preset.copy(colorArgb = newColor) }
-                    },
-                    onCalendarToggle = { calendarId, checked ->
-                        val current = preset.calendarIds ?: calendars.map { it.id }.toSet()
-                        val updated = if (checked) current + calendarId else current - calendarId
-                        presets = presets.toMutableList().apply { this[index] = preset.copy(calendarIds = updated) }
-                    },
-                    onNotionToggle = { databaseId, checked ->
-                        // calendarIds와 달리 null이 "전체"가 아니라 "없음"이므로 기본값을 emptySet()으로 둔다.
-                        val current = preset.notionDatabaseIds ?: emptySet()
-                        val updated = if (checked) current + databaseId else current - databaseId
-                        presets = presets.toMutableList().apply { this[index] = preset.copy(notionDatabaseIds = updated) }
-                    },
-                    onDelete = {
-                        presets = presets.filterIndexed { i, _ -> i != index }
-                        if (currentPresetIndex >= presets.size) currentPresetIndex = 0
-                    },
+            // 연동이 꺼져 있으면 위젯은 항상 자기 선택을 쓰므로 "고정" 여부는 의미가 없다.
+            val choosesOwn = !linkEnabled || pinned
+            if (linkEnabled) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    RadioButton(selected = !pinned, onClick = { pinned = false })
+                    Text("앱과 연동 — 앱에서 고른 프리셋을 따라감", style = MaterialTheme.typography.bodyMedium)
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    RadioButton(selected = pinned, onClick = { pinned = true })
+                    Text("이 위젯은 아래 프리셋으로 고정", style = MaterialTheme.typography.bodyMedium)
+                }
+            } else {
+                Text(
+                    text = "앱·위젯 프리셋 연동이 꺼져 있어 이 위젯은 아래에서 고른 프리셋을 씁니다.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-
-            OutlinedButton(onClick = { presets = presets + newPreset(presets.size, calendars) }) {
-                Text("+ 프리셋 추가")
+            if (choosesOwn) {
+                presets.forEach { preset ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth().clickable { pinnedPresetId = preset.id }.padding(start = 24.dp),
+                    ) {
+                        RadioButton(selected = pinnedPresetId == preset.id, onClick = { pinnedPresetId = preset.id })
+                        Box(modifier = Modifier.size(12.dp).background(Color(preset.colorArgb), CircleShape))
+                        Text(text = preset.name, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = 8.dp))
+                    }
+                }
             }
 
             HorizontalDivider()
@@ -258,7 +244,7 @@ private fun WidgetConfigScreen(
                     Column {
                         Text(text = "음력 표시", style = MaterialTheme.typography.titleMedium)
                         Text(
-                            text = "날짜 아래에 음력을 작게 표시합니다(4x5 확장 위젯 전용).",
+                            text = "초하루·보름·그믐을 날짜 옆에 작게 표시합니다(4x5 확장 위젯 전용).",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -269,139 +255,22 @@ private fun WidgetConfigScreen(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = {
                     scope.launch {
-                        Log.d(
-                            "RunCal",
-                            "WidgetConfigScreen: appWidgetId=$appWidgetId saving presets=${presets.size} step=$fontStep opacity=$opacity",
-                        )
+                        Log.d("RunCal", "WidgetConfigScreen: appWidgetId=$appWidgetId pinned=$pinned step=$fontStep opacity=$opacity")
                         saveWidgetFilterSettings(
                             context = context,
                             appWidgetId = appWidgetId,
-                            presets = presets,
-                            currentPresetIndex = currentPresetIndex,
                             fontScaleStep = fontStep,
                             backgroundOpacity = opacity,
                             showWeekNumber = showWeekNumber,
                             showLunar = showLunar,
+                            presetPinned = if (linkEnabled) pinned else false,
+                            presetId = pinnedPresetId,
                         )
                         onSaved()
                     }
                 }) { Text("저장") }
 
                 OutlinedButton(onClick = onCancel) { Text("취소") }
-            }
-        }
-    }
-}
-
-@Composable
-private fun PresetEditorCard(
-    preset: WidgetPreset,
-    calendars: List<CalendarInfo>,
-    notionDatabases: List<NotionDatabaseEntity>,
-    expanded: Boolean,
-    canDelete: Boolean,
-    onToggleExpand: () -> Unit,
-    onNameChange: (String) -> Unit,
-    onColorChange: (Int) -> Unit,
-    onCalendarToggle: (Long, Boolean) -> Unit,
-    onNotionToggle: (String, Boolean) -> Unit,
-    onDelete: () -> Unit,
-) {
-    val selectedCalendarIds = preset.calendarIds ?: calendars.map { it.id }.toSet()
-    val selectedNotionIds = preset.notionDatabaseIds ?: emptySet()
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
-            .padding(12.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            Box(modifier = Modifier.size(16.dp).background(Color(preset.colorArgb), CircleShape))
-            OutlinedTextField(
-                value = preset.name,
-                onValueChange = onNameChange,
-                singleLine = true,
-                modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
-                label = { Text("이름") },
-            )
-            IconButton(onClick = onToggleExpand) {
-                Icon(
-                    imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                    contentDescription = if (expanded) "접기" else "펼치기",
-                )
-            }
-            if (canDelete) {
-                IconButton(onClick = onDelete) {
-                    Icon(Icons.Default.Delete, contentDescription = "프리셋 삭제")
-                }
-            }
-        }
-
-        if (expanded) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-            ) {
-                PRESET_COLOR_PALETTE.forEach { colorArgb ->
-                    Box(
-                        modifier = Modifier
-                            .size(24.dp)
-                            .background(Color(colorArgb), CircleShape)
-                            .border(
-                                width = if (colorArgb == preset.colorArgb) 2.dp else 0.dp,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                shape = CircleShape,
-                            )
-                            .clickable { onColorChange(colorArgb) },
-                    )
-                }
-            }
-
-            Text(
-                text = "표시할 캘린더",
-                style = MaterialTheme.typography.labelLarge,
-                modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
-            )
-            calendars.forEach { calendar ->
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Checkbox(
-                        checked = selectedCalendarIds.contains(calendar.id),
-                        onCheckedChange = { checked -> onCalendarToggle(calendar.id, checked) },
-                    )
-                    Box(modifier = Modifier.size(10.dp).background(Color(calendar.color), CircleShape))
-                    Column {
-                        Text(text = calendar.displayName, style = MaterialTheme.typography.bodyMedium)
-                        Text(text = calendar.accountName, style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-            }
-
-            // 등록된 Notion DB가 있을 때만 보여준다.
-            if (notionDatabases.isNotEmpty()) {
-                Text(
-                    text = "Notion 데이터베이스",
-                    style = MaterialTheme.typography.labelLarge,
-                    modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
-                )
-                notionDatabases.forEach { database ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Checkbox(
-                            checked = selectedNotionIds.contains(database.id),
-                            onCheckedChange = { checked -> onNotionToggle(database.id, checked) },
-                        )
-                        Box(modifier = Modifier.size(10.dp).background(Color(database.colorArgb), CircleShape))
-                        Text(text = database.displayName, style = MaterialTheme.typography.bodyMedium)
-                    }
-                }
             }
         }
     }

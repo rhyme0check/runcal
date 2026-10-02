@@ -145,7 +145,7 @@ object RunCalWidgetRenderer {
         val settings = resolveAutoReturn(context, appWidgetId, today, currentActualYearMonth)
         val displayedYearMonth = settings.viewingYearMonth ?: currentActualYearMonth
         val isCurrentMonth = displayedYearMonth == currentActualYearMonth
-        val preset = settings.activePreset()
+        val preset = resolveWidgetPreset(context, appWidgetId, settings)
         val textSizes = resolveTextSizes(settings.fontScaleStep)
         val maxBarsPerCell = maxBarsOverride ?: textSizes.maxBarsPerCell
         val backgroundColorInt = resolveBackgroundColorInt(context, settings.backgroundOpacity)
@@ -246,6 +246,7 @@ object RunCalWidgetRenderer {
                     resolvedColors = resolvedColors,
                     isHoliday = specialFlags.showHolidays && special?.isHoliday(day.date) == true,
                     lunarLabel = if (showLunarOnWidget) special?.lunarMarker(day.date) else null,
+                    presetId = preset.id,
                 )
                 weekRow.addView(DAY_SLOT_IDS[dayIndex], cell)
             }
@@ -279,7 +280,7 @@ object RunCalWidgetRenderer {
         bindPresetChip(context, root, appWidgetId, preset)
         root.setOnClickPendingIntent(
             R.id.open_app_spacer,
-            activityPendingIntent(context, appWidgetId, SLOT_OPEN_APP, openAppIntent(context, displayedYearMonth)),
+            activityPendingIntent(context, appWidgetId, SLOT_OPEN_APP, openAppIntent(context, displayedYearMonth, preset.id)),
         )
         root.setTextViewText(R.id.short_yearmonth_button, shortYearMonthLabel(displayedYearMonth))
         root.setTextColor(R.id.short_yearmonth_button, RunCalWidgetColorRes.onBackground(context))
@@ -332,6 +333,7 @@ object RunCalWidgetRenderer {
         resolvedColors: Map<Long, ResolvedEventColor>,
         isHoliday: Boolean,
         lunarLabel: String?,
+        presetId: String,
     ): RemoteViews {
         val isToday = day.date == today
         val cell = RemoteViews(context.packageName, R.layout.widget_day_cell)
@@ -395,6 +397,7 @@ object RunCalWidgetRenderer {
         val dayIntent = Intent(context, MainActivity::class.java).apply {
             data = Uri.parse("runcal://widget/day/${day.date}")
             putExtra(MainActivity.EXTRA_TARGET_DATE_EPOCH_DAY, day.date.toEpochDay())
+            putExtra(MainActivity.EXTRA_PRESET_ID, presetId)
         }
         val requestCode = requestCode(appWidgetId, DAY_CELL_SLOT_BASE + weekIndex * 7 + dayIndex)
         cell.setOnClickPendingIntent(
@@ -510,7 +513,7 @@ object RunCalWidgetRenderer {
     private suspend fun renderTodayMini(context: Context, appWidgetId: Int): RemoteViews {
         val renderStartMillis = System.currentTimeMillis()
         val settings = loadWidgetFilterSettings(context, appWidgetId)
-        val preset = settings.activePreset()
+        val preset = resolveWidgetPreset(context, appWidgetId, settings)
         val backgroundColorInt = resolveBackgroundColorInt(context, settings.backgroundOpacity)
         val zone = ZoneId.systemDefault()
         val today = LocalDate.now()
@@ -523,7 +526,7 @@ object RunCalWidgetRenderer {
         bindPresetChip(context, root, appWidgetId, preset)
         root.setOnClickPendingIntent(
             R.id.mini_body,
-            activityPendingIntent(context, appWidgetId, SLOT_OPEN_APP, openAppIntent(context, null)),
+            activityPendingIntent(context, appWidgetId, SLOT_OPEN_APP, openAppIntent(context, null, preset.id)),
         )
 
         root.setTextViewText(R.id.mini_date_text, "${today.monthValue}월 ${today.dayOfMonth}일")
@@ -547,7 +550,7 @@ object RunCalWidgetRenderer {
     private suspend fun renderTodayHorizontal(context: Context, appWidgetId: Int): RemoteViews {
         val renderStartMillis = System.currentTimeMillis()
         val settings = loadWidgetFilterSettings(context, appWidgetId)
-        val preset = settings.activePreset()
+        val preset = resolveWidgetPreset(context, appWidgetId, settings)
         val textSizes = resolveTextSizes(settings.fontScaleStep)
         val backgroundColorInt = resolveBackgroundColorInt(context, settings.backgroundOpacity)
         val zone = ZoneId.systemDefault()
@@ -562,13 +565,13 @@ object RunCalWidgetRenderer {
         bindPresetChip(context, root, appWidgetId, preset)
         root.setOnClickPendingIntent(
             R.id.open_app_spacer,
-            activityPendingIntent(context, appWidgetId, SLOT_OPEN_APP, openAppIntent(context, null)),
+            activityPendingIntent(context, appWidgetId, SLOT_OPEN_APP, openAppIntent(context, null, preset.id)),
         )
         root.setTextViewText(R.id.today_label, "오늘 ${today.monthValue}/${today.dayOfMonth}")
         root.setTextColor(R.id.today_label, RunCalWidgetColorRes.onBackground(context))
 
         val maxRows = maxListRowsFor(settings.fontScaleStep, base = 5)
-        renderEventRows(context, root, R.id.event_list_container, appWidgetId, events, maxRows, EVENT_ROW_SLOT_BASE, textSizes, zone, resolvedColors)
+        renderEventRows(context, root, R.id.event_list_container, appWidgetId, events, maxRows, EVENT_ROW_SLOT_BASE, textSizes, zone, resolvedColors, preset.id)
 
         Log.d(TAG, "renderTodayHorizontal: appWidgetId=$appWidgetId built in ${System.currentTimeMillis() - renderStartMillis}ms")
         return root
@@ -577,7 +580,7 @@ object RunCalWidgetRenderer {
     private suspend fun renderTodayVertical(context: Context, appWidgetId: Int): RemoteViews {
         val renderStartMillis = System.currentTimeMillis()
         val settings = loadWidgetFilterSettings(context, appWidgetId)
-        val preset = settings.activePreset()
+        val preset = resolveWidgetPreset(context, appWidgetId, settings)
         val textSizes = resolveTextSizes(settings.fontScaleStep)
         val backgroundColorInt = resolveBackgroundColorInt(context, settings.backgroundOpacity)
         val zone = ZoneId.systemDefault()
@@ -593,7 +596,7 @@ object RunCalWidgetRenderer {
         bindPresetChip(context, root, appWidgetId, preset)
         root.setOnClickPendingIntent(
             R.id.open_app_spacer,
-            activityPendingIntent(context, appWidgetId, SLOT_OPEN_APP, openAppIntent(context, null)),
+            activityPendingIntent(context, appWidgetId, SLOT_OPEN_APP, openAppIntent(context, null, preset.id)),
         )
         root.setTextViewText(R.id.today_section_label, "오늘")
         root.setTextColor(R.id.today_section_label, RunCalWidgetColorRes.onBackground(context))
@@ -601,10 +604,10 @@ object RunCalWidgetRenderer {
         root.setTextColor(R.id.tomorrow_section_label, RunCalWidgetColorRes.onBackground(context))
 
         val maxRows = maxListRowsFor(settings.fontScaleStep, base = 3)
-        renderEventRows(context, root, R.id.today_list_container, appWidgetId, todayEvents, maxRows, EVENT_ROW_SLOT_BASE, textSizes, zone, resolvedColors)
+        renderEventRows(context, root, R.id.today_list_container, appWidgetId, todayEvents, maxRows, EVENT_ROW_SLOT_BASE, textSizes, zone, resolvedColors, preset.id)
         renderEventRows(
             context, root, R.id.tomorrow_list_container, appWidgetId, tomorrowEvents, maxRows,
-            EVENT_ROW_SLOT_BASE + EVENT_ROW_SLOT_TOMORROW_OFFSET, textSizes, zone, resolvedColors,
+            EVENT_ROW_SLOT_BASE + EVENT_ROW_SLOT_TOMORROW_OFFSET, textSizes, zone, resolvedColors, preset.id,
         )
 
         Log.d(TAG, "renderTodayVertical: appWidgetId=$appWidgetId built in ${System.currentTimeMillis() - renderStartMillis}ms")
@@ -637,6 +640,7 @@ object RunCalWidgetRenderer {
         textSizes: WidgetTextSizes,
         zone: ZoneId,
         resolvedColors: Map<Long, ResolvedEventColor>,
+        presetId: String,
     ) {
         root.removeAllViews(containerId)
         if (events.isEmpty()) {
@@ -645,7 +649,7 @@ object RunCalWidgetRenderer {
         }
         val visible = events.take(maxRows)
         visible.forEachIndexed { index, event ->
-            root.addView(containerId, buildEventListRow(context, appWidgetId, event, rowSlotBase + index, textSizes, zone, resolvedColors))
+            root.addView(containerId, buildEventListRow(context, appWidgetId, event, rowSlotBase + index, textSizes, zone, resolvedColors, presetId))
         }
         val overflow = events.size - visible.size
         if (overflow > 0) {
@@ -670,6 +674,7 @@ object RunCalWidgetRenderer {
         textSizes: WidgetTextSizes,
         zone: ZoneId,
         resolvedColors: Map<Long, ResolvedEventColor>,
+        presetId: String,
     ): RemoteViews {
         val resolved = resolvedColors[event.id]
         val bold = resolved?.bold == true
@@ -695,6 +700,7 @@ object RunCalWidgetRenderer {
         val intent = Intent(context, MainActivity::class.java).apply {
             data = Uri.parse("runcal://widget/event/${event.id}/$eventDate")
             putExtra(MainActivity.EXTRA_TARGET_DATE_EPOCH_DAY, eventDate.toEpochDay())
+            putExtra(MainActivity.EXTRA_PRESET_ID, presetId)
         }
         val requestCode = requestCode(appWidgetId, slot)
         row.setOnClickPendingIntent(
@@ -797,12 +803,13 @@ private fun broadcastPendingIntent(context: Context, appWidgetId: Int, slot: Int
     )
 }
 
-private fun openAppIntent(context: Context, displayedYearMonth: YearMonth?): Intent =
+private fun openAppIntent(context: Context, displayedYearMonth: YearMonth?, presetId: String? = null): Intent =
     Intent(context, MainActivity::class.java).apply {
         data = Uri.parse("runcal://widget/open-app/${displayedYearMonth ?: "none"}")
         if (displayedYearMonth != null) {
             putExtra(MainActivity.EXTRA_TARGET_YEAR_MONTH, displayedYearMonth.toString())
         }
+        presetId?.let { putExtra(MainActivity.EXTRA_PRESET_ID, it) }
     }
 
 private fun pickerIntent(context: Context, appWidgetId: Int): Intent =

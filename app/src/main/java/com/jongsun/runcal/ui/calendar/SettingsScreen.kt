@@ -36,6 +36,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -57,6 +58,7 @@ import com.jongsun.runcal.R
 import com.jongsun.runcal.data.APP_PRESET_COLOR_PALETTE
 import com.jongsun.runcal.data.AppPreset
 import com.jongsun.runcal.data.CalendarInfo
+import com.jongsun.runcal.data.defaultPresetCalendarIds
 import com.jongsun.runcal.data.MAX_APP_FONT_SCALE_STEP
 import com.jongsun.runcal.data.MIN_APP_FONT_SCALE_STEP
 import com.jongsun.runcal.data.room.NotionDatabaseEntity
@@ -87,6 +89,7 @@ fun SettingsScreen(viewModel: CalendarViewModel, assistantViewModel: AssistantVi
     val fontScaleStep by viewModel.appFontScaleStep.collectAsStateWithLifecycle()
     val presets by viewModel.presets.collectAsStateWithLifecycle()
     val activePresetId by viewModel.activePresetId.collectAsStateWithLifecycle()
+    val presetLinkEnabled by viewModel.presetLinkEnabled.collectAsStateWithLifecycle()
     val notionDatabases by viewModel.notionDatabases.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
 
@@ -105,7 +108,7 @@ fun SettingsScreen(viewModel: CalendarViewModel, assistantViewModel: AssistantVi
                 modifier = Modifier.padding(top = 16.dp, bottom = 4.dp),
             )
             Text(
-                text = "앱 화면 전용 설정이며 위젯별 설정과는 독립적으로 동작합니다.",
+                text = "지금 앱 화면에 보일 캘린더입니다. 프리셋을 고르면 이 선택이 프리셋 값으로 바뀝니다.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -136,10 +139,29 @@ fun SettingsScreen(viewModel: CalendarViewModel, assistantViewModel: AssistantVi
                 }
             }
             Text(
-                text = "표시할 캘린더 조합을 이름으로 저장해두고 한 번에 전환합니다.",
+                text = "표시할 캘린더 조합을 이름으로 저장해두고 한 번에 전환합니다. 위젯도 이 목록을 함께 씁니다.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(text = "앱·위젯 프리셋 연동", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        text = if (presetLinkEnabled) {
+                            "앱에서 고르면 위젯도, 위젯에서 고르거나 위젯을 눌러 들어오면 앱도 같은 프리셋으로 바뀝니다(위젯 설정에서 고정한 위젯 제외)."
+                        } else {
+                            "앱과 위젯이 각자 프리셋을 고릅니다(목록은 공유)."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(checked = presetLinkEnabled, onCheckedChange = { scope.launch { viewModel.setPresetLinkEnabled(it) } })
+            }
         }
         itemsIndexed(presets) { index, preset ->
             PresetRow(
@@ -395,7 +417,12 @@ private fun PresetEditDialog(
     var colorArgb by remember { mutableIntStateOf(existing?.colorArgb ?: APP_PRESET_COLOR_PALETTE.first()) }
     // null(전체)과 빈 집합을 구분해야 하므로, 다이얼로그 안에서는 항상 구체적인 집합으로 다룬다.
     var selectedIds by remember {
-        mutableStateOf(existing?.calendarIds ?: calendars.map { it.id }.toSet())
+        mutableStateOf(
+            when {
+                existing == null -> defaultPresetCalendarIds(calendars)
+                else -> existing.calendarIds ?: calendars.map { it.id }.toSet()
+            },
+        )
     }
     // Notion은 캘린더와 달리 기본이 "없음"이다 — 새 프리셋은 빈 집합에서 시작한다(opt-in).
     var selectedNotionIds by remember {

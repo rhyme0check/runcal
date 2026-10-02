@@ -44,13 +44,17 @@ data class BackupAppSettings(
 data class BackupWidgetInstance(
     val appWidgetId: Int,
     val widgetKindHint: String,
-    val presets: List<com.jongsun.runcal.widget.WidgetPreset>,
-    val currentPresetIndex: Int,
+    // 구버전(위젯별 프리셋) 데이터. 새 백업에서는 비어 있고 프리셋 정의는 appPresets에만 있다.
+    val presets: List<com.jongsun.runcal.widget.WidgetPreset> = emptyList(),
+    val currentPresetIndex: Int = 0,
     val fontScaleStep: Int,
     val backgroundOpacity: Float,
     val showWeekNumber: Boolean,
     // 위젯별 음력 표시(4x5 확장 위젯 전용). null = 구버전 백업 → 복원 시 현재 값 유지.
     val showLunar: Boolean? = null,
+    // 공용 프리셋 중 이 위젯이 고른 것과 고정 여부. null = 구버전 백업.
+    val presetId: String? = null,
+    val presetPinned: Boolean? = null,
 )
 
 /**

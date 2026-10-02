@@ -84,20 +84,27 @@ private fun PresetPickerScreen(appWidgetId: Int, onDismiss: () -> Unit) {
     val scope = rememberCoroutineScope()
 
     var presets by remember { mutableStateOf<List<WidgetPreset>>(emptyList()) }
-    var currentPresetIndex by remember { mutableStateOf(0) }
+    var currentPresetId by remember { mutableStateOf<String?>(null) }
+    var linkNote by remember { mutableStateOf("") }
     var loaded by remember { mutableStateOf(false) }
 
     LaunchedEffect(appWidgetId) {
         val settings = loadWidgetFilterSettings(context, appWidgetId)
-        presets = settings.presets
-        currentPresetIndex = settings.currentPresetIndex
+        val shared = com.jongsun.runcal.data.SharedPresets.snapshot(context)
+        presets = shared.presets.map { it.toWidgetPreset() }
+        currentPresetId = resolveWidgetPreset(context, appWidgetId, settings).id
+        linkNote = when {
+            !shared.linkEnabled -> "이 위젯만 바뀝니다(앱·위젯 연동 꺼짐)"
+            settings.presetPinned -> "이 위젯만 바뀝니다(고정 위젯)"
+            else -> "앱과 연동된 위젯도 함께 바뀝니다"
+        }
         loaded = true
     }
 
-    fun select(index: Int) {
-        Log.d(TAG, "callback=PresetPickerScreen.select id=$appWidgetId index=$index")
+    fun select(presetId: String) {
+        Log.d(TAG, "callback=PresetPickerScreen.select id=$appWidgetId preset=$presetId")
         scope.launch {
-            applyWidgetState(context, appWidgetId) { current -> current.copy(currentPresetIndex = index) }
+            selectWidgetPreset(context, appWidgetId, presetId)
             onDismiss()
         }
     }
@@ -129,13 +136,14 @@ private fun PresetPickerScreen(appWidgetId: Int, onDismiss: () -> Unit) {
             } else {
                 Column(modifier = Modifier.padding(20.dp).fillMaxWidth()) {
                     Text(text = "프리셋 선택", style = MaterialTheme.typography.titleMedium)
-                    presets.forEachIndexed { index, preset ->
-                        val isSelected = index == currentPresetIndex
+                    Text(text = linkNote, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    presets.forEach { preset ->
+                        val isSelected = preset.id == currentPresetId
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { select(index) }
+                                .clickable { select(preset.id) }
                                 .padding(vertical = 12.dp),
                         ) {
                             Box(

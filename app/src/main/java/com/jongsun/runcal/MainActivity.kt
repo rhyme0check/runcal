@@ -35,7 +35,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
+import com.jongsun.runcal.data.AppSettingsRepository
 import com.jongsun.runcal.data.CALENDAR_PERMISSIONS
+import com.jongsun.runcal.data.SharedPresets
+import com.jongsun.runcal.widget.RunCalWidgetRenderer
+import kotlinx.coroutines.launch
 import com.jongsun.runcal.data.hasCalendarPermissions
 import com.jongsun.runcal.ui.calendar.RunCalMainScaffold
 import com.jongsun.runcal.ui.theme.RunCalTheme
@@ -64,6 +69,7 @@ class MainActivity : ComponentActivity() {
             CalendarObserverManager.register(this)
         }
         pendingDeepLinkTarget = extractDeepLinkTarget(intent)
+        applyWidgetPresetFrom(intent)
         setContent {
             RunCalTheme {
                 RunCalApp(
@@ -78,9 +84,29 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         pendingDeepLinkTarget = extractDeepLinkTarget(intent)
+        applyWidgetPresetFrom(intent)
+    }
+
+    /**
+     * 위젯을 눌러 들어온 경우, 앱·위젯 프리셋 연동이 켜져 있으면 위젯이 보여주던 프리셋을 앱에도 적용한다.
+     * (고정 위젯을 눌렀다면 앱이 그 프리셋으로 바뀌고, 연동된 다른 위젯도 따라간다.)
+     */
+    private fun applyWidgetPresetFrom(intent: Intent?) {
+        val presetId = intent?.getStringExtra(EXTRA_PRESET_ID) ?: return
+        intent.removeExtra(EXTRA_PRESET_ID) // 화면 회전 등으로 같은 인텐트를 다시 처리하지 않게.
+        lifecycleScope.launch {
+            val shared = SharedPresets.snapshot(applicationContext)
+            if (!shared.linkEnabled || shared.activePresetId == presetId) return@launch
+            val preset = shared.byId(presetId) ?: return@launch
+            AppSettingsRepository(applicationContext).applyPreset(preset)
+            RunCalWidgetRenderer.updateAllWidgets(applicationContext)
+        }
     }
 
     companion object {
+        /** 위젯에서 앱으로 넘어올 때 위젯이 보여주던 프리셋 id. */
+        const val EXTRA_PRESET_ID = "com.jongsun.runcal.EXTRA_PRESET_ID"
+
         /** 위젯에서 날짜 칸을 탭했을 때 전달되는 대상 날짜(LocalDate.toEpochDay()). */
         const val EXTRA_TARGET_DATE_EPOCH_DAY = "com.jongsun.runcal.EXTRA_TARGET_DATE_EPOCH_DAY"
 

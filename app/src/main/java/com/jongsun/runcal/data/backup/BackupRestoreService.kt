@@ -122,9 +122,14 @@ object BackupRestoreService {
                 return@forEach
             }
             saveWidgetFilterSettings(
-                context, snapshot.appWidgetId, snapshot.presets, snapshot.currentPresetIndex,
+                context, snapshot.appWidgetId,
                 snapshot.fontScaleStep, snapshot.backgroundOpacity, snapshot.showWeekNumber,
                 showLunar = snapshot.showLunar,
+                presetPinned = snapshot.presetPinned,
+                presetId = snapshot.presetId,
+                // 구버전 백업이면 위젯별 프리셋을 되살려, 다음 렌더에서 앱 프리셋 목록으로 다시 합친다.
+                legacyPresets = snapshot.presets.takeIf { snapshot.presetPinned == null && it.isNotEmpty() },
+                legacyPresetIndex = snapshot.currentPresetIndex,
             )
             restored++
         }

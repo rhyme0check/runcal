@@ -19,6 +19,9 @@ private object Keys {
     const val LAST_NAVIGATED_AT_MILLIS = "last_navigated_at_millis"
     const val SHOW_WEEK_NUMBER = "show_week_number"
     const val SHOW_LUNAR = "show_lunar"
+    const val PRESET_ID = "preset_id"
+    const val PRESET_PINNED = "preset_pinned"
+    const val LEGACY_MIGRATED = "legacy_presets_migrated"
 }
 
 private fun prefsFor(context: Context, appWidgetId: Int): SharedPreferences =
@@ -58,6 +61,9 @@ private fun SharedPreferences.toWidgetFilterSettings(): WidgetFilterSettings {
         lastNavigatedAtMillis = getLong(Keys.LAST_NAVIGATED_AT_MILLIS, 0L),
         showWeekNumber = getBoolean(Keys.SHOW_WEEK_NUMBER, false),
         showLunar = getBoolean(Keys.SHOW_LUNAR, false),
+        presetId = getString(Keys.PRESET_ID, null),
+        presetPinned = getBoolean(Keys.PRESET_PINNED, false),
+        legacyPresetsMigrated = getBoolean(Keys.LEGACY_MIGRATED, false),
     )
 }
 
@@ -74,6 +80,9 @@ private fun SharedPreferences.Editor.applyWidgetFilterSettings(settings: WidgetF
     putLong(Keys.LAST_NAVIGATED_AT_MILLIS, settings.lastNavigatedAtMillis)
     putBoolean(Keys.SHOW_WEEK_NUMBER, settings.showWeekNumber)
     putBoolean(Keys.SHOW_LUNAR, settings.showLunar)
+    if (settings.presetId == null) remove(Keys.PRESET_ID) else putString(Keys.PRESET_ID, settings.presetId)
+    putBoolean(Keys.PRESET_PINNED, settings.presetPinned)
+    putBoolean(Keys.LEGACY_MIGRATED, settings.legacyPresetsMigrated)
     return this
 }
 
@@ -152,28 +161,35 @@ suspend fun applyWidgetState(
 suspend fun saveWidgetFilterSettings(
     context: Context,
     appWidgetId: Int,
-    presets: List<WidgetPreset>,
-    currentPresetIndex: Int,
     fontScaleStep: Int,
     backgroundOpacity: Float,
     showWeekNumber: Boolean,
-    // null이면 기존 값을 유지한다(백업 복원처럼 이 필드를 모르는 호출부용).
+    // 이하 null이면 기존 값을 유지한다(백업 복원처럼 이 필드를 모르는 호출부용).
     showLunar: Boolean? = null,
+    presetPinned: Boolean? = null,
+    presetId: String? = null,
+    // 구버전 백업 복원 전용: 위젯별 프리셋 목록을 되살린 뒤 다음 렌더에서 앱 프리셋으로 다시 이전되게 한다.
+    legacyPresets: List<WidgetPreset>? = null,
+    legacyPresetIndex: Int = 0,
 ) {
     Log.d(
         TAG,
-        "saveWidgetFilterSettings: appWidgetId=$appWidgetId writing presets=${presets.size} " +
-            "currentPresetIndex=$currentPresetIndex fontScaleStep=$fontScaleStep backgroundOpacity=$backgroundOpacity " +
-            "showWeekNumber=$showWeekNumber",
+        "saveWidgetFilterSettings: appWidgetId=$appWidgetId fontScaleStep=$fontScaleStep backgroundOpacity=$backgroundOpacity " +
+            "showWeekNumber=$showWeekNumber presetPinned=$presetPinned legacy=${legacyPresets?.size}",
     )
     applyWidgetState(context, appWidgetId) { current ->
-        current.copy(
-            presets = presets,
-            currentPresetIndex = currentPresetIndex,
+        val withLegacy = if (!legacyPresets.isNullOrEmpty()) {
+            current.copy(presets = legacyPresets, currentPresetIndex = legacyPresetIndex, legacyPresetsMigrated = false)
+        } else {
+            current
+        }
+        withLegacy.copy(
             fontScaleStep = fontScaleStep,
             backgroundOpacity = backgroundOpacity,
             showWeekNumber = showWeekNumber,
             showLunar = showLunar ?: current.showLunar,
+            presetPinned = presetPinned ?: current.presetPinned,
+            presetId = if (presetPinned != null) presetId ?: current.presetId else current.presetId,
         )
     }
 }

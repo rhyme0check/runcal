@@ -101,6 +101,9 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
     private val _notionDatabases = MutableStateFlow<List<NotionDatabaseEntity>>(emptyList())
     val notionDatabases: StateFlow<List<NotionDatabaseEntity>> = _notionDatabases.asStateFlow()
 
+    private val _presetLinkEnabled = MutableStateFlow(true)
+    val presetLinkEnabled: StateFlow<Boolean> = _presetLinkEnabled.asStateFlow()
+
     private val _remindersEnabled = MutableStateFlow(true)
     val remindersEnabled: StateFlow<Boolean> = _remindersEnabled.asStateFlow()
 
@@ -147,6 +150,7 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
                 _activePresetId.value = settings.activePresetId
                 _notionSyncIntervalHours.value = settings.notionSyncIntervalHours
                 _remindersEnabled.value = settings.remindersEnabled
+                _presetLinkEnabled.value = settings.presetLinkEnabled
                 _defaultReminderMinutes.value = settings.defaultReminderMinutes
                 // DataStore의 첫 값이 도착하기 전에 Monthly/Daily가 먼저 컴포지션되어
                 // ensureMonthLoaded가 기본값(빈 Notion 필터)으로 먼저 캐시를 채워버릴 수 있다.
@@ -468,12 +472,21 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
      * emptySet()으로 변환해서 넘긴다 — 그대로 null을 넘기면 "전체 Notion DB"로 해석돼버린다.
      */
     suspend fun applyPreset(preset: AppPreset) {
-        appSettingsRepository.setVisibleCalendarIds(preset.calendarIds)
-        appSettingsRepository.setVisibleNotionDatabaseIds(preset.notionDatabaseIds ?: emptySet())
-        appSettingsRepository.setActivePresetId(preset.id)
+        appSettingsRepository.applyPreset(preset)
+        // 연동 중이면 고정하지 않은 위젯들이 새 프리셋을 따라간다.
+        if (_presetLinkEnabled.value) RunCalWidgetRenderer.updateAllWidgets(getApplication())
     }
 
-    suspend fun savePresets(presets: List<AppPreset>) = appSettingsRepository.setPresets(presets)
+    /** 프리셋 정의는 앱·위젯 공용이라, 바꾸면 위젯을 항상 다시 그린다. */
+    suspend fun savePresets(presets: List<AppPreset>) {
+        appSettingsRepository.setPresets(presets)
+        RunCalWidgetRenderer.updateAllWidgets(getApplication())
+    }
+
+    suspend fun setPresetLinkEnabled(enabled: Boolean) {
+        appSettingsRepository.setPresetLinkEnabled(enabled)
+        RunCalWidgetRenderer.updateAllWidgets(getApplication())
+    }
 
     suspend fun fetchNotionSchema(notionDatabaseId: String): NotionDatabaseSchemaResponse =
         notionApiClient.retrieveDatabase(notionDatabaseId)

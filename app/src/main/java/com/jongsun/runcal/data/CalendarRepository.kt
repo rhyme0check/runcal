@@ -68,6 +68,8 @@ class CalendarRepository(private val context: Context) : EventSource {
                 CalendarContract.Calendars.CALENDAR_COLOR,
                 CalendarContract.Calendars.VISIBLE,
                 CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL,
+                CalendarContract.Calendars.OWNER_ACCOUNT,
+                CalendarContract.Calendars.IS_PRIMARY,
             )
             val result = mutableListOf<CalendarInfo>()
             resolver.query(CalendarContract.Calendars.CONTENT_URI, projection, null, null, null)?.use { cursor ->
@@ -78,6 +80,8 @@ class CalendarRepository(private val context: Context) : EventSource {
                 val colorIdx = cursor.getColumnIndexOrThrow(CalendarContract.Calendars.CALENDAR_COLOR)
                 val visibleIdx = cursor.getColumnIndexOrThrow(CalendarContract.Calendars.VISIBLE)
                 val accessLevelIdx = cursor.getColumnIndexOrThrow(CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL)
+                val ownerIdx = cursor.getColumnIndex(CalendarContract.Calendars.OWNER_ACCOUNT)
+                val primaryIdx = cursor.getColumnIndex(CalendarContract.Calendars.IS_PRIMARY)
                 while (cursor.moveToNext()) {
                     result += CalendarInfo(
                         id = cursor.getLong(idIdx),
@@ -87,6 +91,8 @@ class CalendarRepository(private val context: Context) : EventSource {
                         visible = cursor.getInt(visibleIdx) != 0,
                         isWritable = cursor.getInt(accessLevelIdx) >= CalendarContract.Calendars.CAL_ACCESS_CONTRIBUTOR,
                         accountType = cursor.getString(accountTypeIdx).orEmpty(),
+                        ownerAccount = if (ownerIdx >= 0) cursor.getString(ownerIdx).orEmpty() else "",
+                        isPrimary = primaryIdx >= 0 && cursor.getInt(primaryIdx) != 0,
                     )
                 }
             }

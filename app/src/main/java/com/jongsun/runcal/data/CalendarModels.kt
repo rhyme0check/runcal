@@ -16,7 +16,32 @@ data class CalendarInfo(
     // 캘린더는 실측으로 확인된 CalendarProvider 결함 때문에 반복 일정 예외("이번만") 처리 시
     // 예외 이전 회차가 사라진다 — 편집 화면이 이 값으로 "이번만" 옵션을 감춘다.
     val accountType: String = "",
+    // CalendarContract.Calendars.OWNER_ACCOUNT / IS_PRIMARY. 새 프리셋의 기본 선택(구글 메인 캘린더,
+    // 공휴일 캘린더)을 고를 때 쓴다 — 표시 이름은 사용자가 바꿀 수 있어 판단 근거로 쓰지 않는다.
+    val ownerAccount: String = "",
+    val isPrimary: Boolean = false,
 )
+
+/**
+ * 새 프리셋을 만들 때 기본으로 체크해 둘 캘린더: RunCal 로컬 캘린더, 구글 계정의 메인 캘린더, 한국 공휴일 캘린더.
+ * (공유받은 캘린더·다른 나라 공휴일 등은 기본 해제 — 매번 수동으로 빼는 수고를 없앤다.) 하나도 못 찾으면 전체.
+ */
+fun defaultPresetCalendarIds(calendars: List<CalendarInfo>): Set<Long> {
+    val picked = calendars.filter { it.isRunCalLocal() || it.isGooglePrimary() || it.isKoreanHoliday() }.map { it.id }.toSet()
+    return picked.ifEmpty { calendars.map { it.id }.toSet() }
+}
+
+fun CalendarInfo.isRunCalLocal(): Boolean =
+    accountType == android.provider.CalendarContract.ACCOUNT_TYPE_LOCAL && accountName == CalendarRepository.LOCAL_ACCOUNT_NAME
+
+fun CalendarInfo.isGooglePrimary(): Boolean =
+    accountType == "com.google" && (isPrimary || ownerAccount.equals(accountName, ignoreCase = true))
+
+/** 구글 공휴일 캘린더는 소유 계정이 "<언어>.south_korea#holiday@group.v.calendar.google.com" 형식이다. */
+fun CalendarInfo.isKoreanHoliday(): Boolean {
+    val owner = ownerAccount.lowercase()
+    return owner.contains("#holiday@") && owner.contains("south_korea")
+}
 
 data class EventItem(
     val id: Long,

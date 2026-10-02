@@ -43,8 +43,14 @@ val DEFAULT_PRESET = WidgetPreset(id = "__all__", name = "전체", colorArgb = P
  * 다른 달을 보고 있는 상태를 의미하며 [lastNavigatedAtMillis]와 함께 자동 복귀 판단에 쓰인다.
  */
 data class WidgetFilterSettings(
+    /** 구버전(위젯별 프리셋) 데이터. 앱 프리셋 목록으로 한 번 이전된 뒤에는 비어 있다([legacyPresetsMigrated]). */
     val presets: List<WidgetPreset> = emptyList(),
     val currentPresetIndex: Int = 0,
+    /** 이 위젯이 고른 앱 프리셋 id. 연동 중(고정 안 함)이면 무시되고 앱의 활성 프리셋을 따른다. */
+    val presetId: String? = null,
+    /** true면 앱·위젯 연동이 켜져 있어도 이 위젯은 [presetId]에 고정된다. */
+    val presetPinned: Boolean = false,
+    val legacyPresetsMigrated: Boolean = false,
     val fontScaleStep: Int = DEFAULT_FONT_SCALE_STEP,
     val backgroundOpacity: Float = DEFAULT_BACKGROUND_OPACITY,
     val viewingYearMonth: YearMonth? = null,
@@ -55,17 +61,6 @@ data class WidgetFilterSettings(
     val showLunar: Boolean = false,
 )
 
-fun WidgetFilterSettings.activePreset(): WidgetPreset {
-    if (presets.isEmpty()) return DEFAULT_PRESET
-    val idx = currentPresetIndex.coerceIn(presets.indices)
-    return presets[idx]
-}
-
-fun WidgetFilterSettings.nextPresetIndex(): Int {
-    if (presets.size <= 1) return 0
-    val idx = currentPresetIndex.coerceIn(presets.indices)
-    return (idx + 1) % presets.size
-}
 
 /** [WidgetPreset] 리스트를 JSON으로 (역)직렬화할 때 쓰는 공용 시리얼라이저. */
 val presetListSerializer = ListSerializer(WidgetPreset.serializer())

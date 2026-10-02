@@ -3,7 +3,7 @@ package com.jongsun.runcal.data
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 
-/** 앱 화면 전용 캘린더 표시 프리셋. 위젯의 WidgetPreset과는 독립적으로 저장/관리된다. */
+/** 캘린더 표시 프리셋. 앱과 위젯이 이 목록 하나를 함께 쓴다(정의는 앱 설정에만 저장, 위젯은 선택한 id만 가진다). */
 @Serializable
 data class AppPreset(
     val id: String,

@@ -63,6 +63,8 @@ object BackupJob {
                 backgroundOpacity = widgetSettings.backgroundOpacity,
                 showWeekNumber = widgetSettings.showWeekNumber,
                 showLunar = widgetSettings.showLunar,
+                presetId = widgetSettings.presetId,
+                presetPinned = widgetSettings.presetPinned,
             )
         }
 
