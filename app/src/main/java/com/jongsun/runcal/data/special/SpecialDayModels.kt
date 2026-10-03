@@ -10,7 +10,8 @@ import java.time.ZoneOffset
 const val SPECIAL_CALENDAR_ID = -100L
 
 const val HOLIDAY_BAR_COLOR = 0xFFD32F2F.toInt()
-const val SOLAR_TERM_BAR_COLOR = 0xFF2E7D32.toInt()
+// 절기는 공휴일이 아니므로 일반 일정과 헷갈리지 않게 연회색(검은 글씨)으로 그린다.
+const val SOLAR_TERM_BAR_COLOR = 0xFFC8C8C8.toInt()
 
 /** 음력 날짜. [isLeap]이면 윤달. */
 data class LunarDate(val month: Int, val day: Int, val isLeap: Boolean) {
