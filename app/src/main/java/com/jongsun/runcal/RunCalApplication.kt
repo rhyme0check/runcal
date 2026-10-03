@@ -40,6 +40,8 @@ class RunCalApplication : Application() {
             val hours = AppSettingsRepository(this@RunCalApplication).settings.first().notionSyncIntervalHours
             WorkScheduler.applySavedIntervalIfChanged(this@RunCalApplication, hours.toLong())
         }
+        // 빌드에 넣어 둔 Notion DB(달리기·글적긁적)를 처음 실행 때 등록한다.
+        appScope.launch { runCatching { com.jongsun.runcal.data.notion.NotionSeed.applyIfNeeded(this@RunCalApplication) } }
     }
 
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)

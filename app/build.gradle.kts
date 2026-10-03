@@ -53,6 +53,12 @@ android {
             "DRIVE_WEB_CLIENT_ID",
             "\"${localProperties.getProperty("DRIVE_WEB_CLIENT_ID", "")}\"",
         )
+        // 처음 실행 때 미리 등록할 Notion DB 목록(NotionSeed). 개인 DB id라 public 저장소 대신 local.properties에 둔다.
+        buildConfigField(
+            "String",
+            "NOTION_SEED_DBS",
+            "\"${localProperties.getProperty("NOTION_SEED_DBS", "").replace("\\", "\\\\").replace("\"", "\\\"")}\"",
+        )
     }
 
     buildTypes {
