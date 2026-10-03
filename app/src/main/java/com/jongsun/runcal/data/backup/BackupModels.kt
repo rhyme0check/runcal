@@ -98,6 +98,11 @@ data class BackupLocalEvent(
     // 일정 색(EVENT_COLOR)과 유형. null = 구버전 백업이거나 지정 안 함.
     val eventColor: Int? = null,
     val eventTypeId: String? = null,
+    // 반복 규칙·메모·생일/기념일 표시(생일은 매년 반복이 있어야 하므로 함께 담는다). 구버전 백업이면 기본값.
+    val rrule: String? = null,
+    val description: String = "",
+    val birthday: Boolean = false,
+    val anniversary: Boolean = false,
 )
 
 /** 일정 유형 하나(설정 > 일정 유형). */

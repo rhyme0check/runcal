@@ -20,7 +20,12 @@ class EventGroupIndex(
     groups: List<EventTypeEntity>,
     private val calendarAssignments: Map<Long, String>,
     private val notionAssignments: Map<String, String>,
+    private val marks: Map<Long, com.jongsun.runcal.data.room.EventMarkEntity> = emptyMap(),
 ) {
+    /** 캘린더 일정의 생일·기념일 표시. Notion 항목에는 없다. */
+    fun markOf(event: EventItem): com.jongsun.runcal.data.room.EventMarkEntity? =
+        if (event.sourceKind == EventSourceKind.CALENDAR) marks[event.id] else null
+
     private val byId = groups.associateBy { it.id }
     private val rules: List<Pair<EventTypeEntity, List<String>>> =
         groups.sortedBy { it.sortOrder }.map { it to parseTitleKeywords(it.titleKeywords) }.filter { it.second.isNotEmpty() }
@@ -66,6 +71,7 @@ object EventGroups {
             groups = dao.getAll(),
             calendarAssignments = dao.allAssignments().associate { it.eventId to it.typeId },
             notionAssignments = dao.allNotionAssignments().associate { EventGroupIndex.notionKey(it.registrationId, it.pageId) to it.typeId },
+            marks = dao.allMarks().associateBy { it.eventId },
         )
         cached = built
         return built
@@ -82,6 +88,12 @@ object EventGroups {
  */
 fun EventItem.withGroup(index: EventGroupIndex, overrideColor: Int?): EventItem {
     val group = index.groupOf(this)
-    val display = overrideColor ?: group?.colorArgb
-    return if (group?.id == groupId && display == displayColor) this else copy(groupId = group?.id, displayColor = display)
+    val mark = index.markOf(this)
+    val birthday = mark?.birthday == true
+    val anniversary = mark?.anniversary == true
+    // 기념일은 공휴일과 같은 색으로 그린다(프리셋·그룹 색보다 우선).
+    val display = if (anniversary) com.jongsun.runcal.data.special.HOLIDAY_BAR_COLOR else overrideColor ?: group?.colorArgb
+    val shownTitle = if (birthday && !title.startsWith(BIRTHDAY_PREFIX)) BIRTHDAY_PREFIX + title else title
+    if (group?.id == groupId && display == displayColor && birthday == isBirthday && anniversary == isAnniversary && shownTitle == title) return this
+    return copy(groupId = group?.id, displayColor = display, isBirthday = birthday, isAnniversary = anniversary, title = shownTitle)
 }

@@ -211,6 +211,11 @@ object RunCalWidgetRenderer {
             }
         }
         val events = (sourceEvents + specialBars).sortedBy { it.begin }
+        // 기념일로 표시한 일정이 있는 날은 공휴일처럼 빨간 날짜로 그린다.
+        val anniversaryDates = sourceEvents.filter { it.isAnniversary }.flatMap { e ->
+            val r = e.dateRange(zone)
+            generateSequence(r.start) { d -> d.plusDays(1).takeIf { it <= r.endInclusive } }.toList()
+        }.toSet()
         val resolvedColors = resolveEventColors(context, events)
         val afterColorsMillis = System.currentTimeMillis()
         val afterColorsMillisFromSpecial = afterColorsMillis - afterSpecialMillis
@@ -261,7 +266,7 @@ object RunCalWidgetRenderer {
                     maxBarsPerCell = maxBarsPerCell,
                     dotMode = dotMode,
                     resolvedColors = resolvedColors,
-                    isHoliday = specialFlags.showHolidays && special?.isHoliday(day.date) == true,
+                    isHoliday = (specialFlags.showHolidays && special?.isHoliday(day.date) == true) || day.date in anniversaryDates,
                     lunarLabel = if (showLunarOnWidget) special?.lunarMarker(day.date) else null,
                     presetId = preset.id,
                 )

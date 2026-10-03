@@ -21,7 +21,8 @@ fun EventItem.dateRange(zone: ZoneId = ZoneId.systemDefault()): ClosedRange<Loca
 
 /** 종일 일정이거나 이틀 이상에 걸친 일정인지 — 월간 화면에서 막대로 표시할 대상. */
 fun EventItem.isBarWorthy(zone: ZoneId = ZoneId.systemDefault()): Boolean {
-    if (allDay) return true
+    // 기념일은 시간이 있어도 공휴일처럼 막대로 그린다.
+    if (allDay || isAnniversary) return true
     val range = dateRange(zone)
     return range.start != range.endInclusive
 }

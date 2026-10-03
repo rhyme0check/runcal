@@ -64,6 +64,7 @@ import com.jongsun.runcal.data.EventStyleChoice
 import com.jongsun.runcal.data.hasRestrictedEventColors
 import com.jongsun.runcal.data.nearestColor
 import com.jongsun.runcal.data.recommendColors
+import com.jongsun.runcal.data.BIRTHDAY_PREFIX
 import com.jongsun.runcal.data.EventItem
 import com.jongsun.runcal.data.MonthlyRecurrenceType
 import com.jongsun.runcal.data.RecurrenceEndType
@@ -408,7 +409,13 @@ private fun EventEditContent(
     val zone = remember { ZoneId.systemDefault() }
     val scope = rememberCoroutineScope()
 
-    var title by remember { mutableStateOf(existing?.title ?: initialTitle) }
+    // 생일 일정은 화면에 🎂가 붙어 오므로 편집할 때는 떼고 보여 준다(캘린더에는 원래 제목만 저장).
+    var title by remember { mutableStateOf(existing?.title?.let { if (existing.isBirthday) it.removePrefix(BIRTHDAY_PREFIX) else it } ?: initialTitle) }
+    var birthday by remember { mutableStateOf(existing?.isBirthday ?: false) }
+    var anniversary by remember { mutableStateOf(existing?.isAnniversary ?: false) }
+    var marksTouched by remember { mutableStateOf(false) }
+    // 저장으로 만들어지거나 바뀐 일정 id(반복 예외·분리로 새 id가 생길 수 있음) — 생일·기념일 표시를 여기에 붙인다.
+    val markIds = remember { mutableListOf<Long>() }
     var allDay by remember { mutableStateOf(existing?.allDay ?: false) }
     var startDate by remember { mutableStateOf(existing?.dateRange(zone)?.start ?: initialDate) }
     var endDate by remember { mutableStateOf(existing?.dateRange(zone)?.endInclusive ?: initialDate) }
@@ -460,6 +467,11 @@ private fun EventEditContent(
         if (existing != null) {
             reminderMinutes = viewModel.getReminders(existing.id)
             typeId = viewModel.getEventTypeId(existing.id)
+            if (!marksTouched) {
+                val (b, a) = viewModel.getEventMark(existing.id)
+                birthday = b
+                anniversary = a
+            }
         }
     }
     fun styleForSave(): EventStyleChoice? = if (existing == null || styleTouched) EventStyleChoice(eventColor, typeId) else null
@@ -479,11 +491,13 @@ private fun EventEditContent(
             endDate.atTime(endTime).atZone(zone).toInstant().toEpochMilli()
     }
 
-    suspend fun performSave(calendarId: Long, editScope: RecurrenceEditScope): Boolean {
+    suspend fun performSaveCore(calendarId: Long, editScope: RecurrenceEditScope): Boolean {
         val (newBegin, newEnd) = computeMillis()
         if (existing == null) {
             val rrule = recurrenceRule.toRRuleString(startDate)
-            return viewModel.createLocalEvent(calendarId, title.trim(), newBegin, newEnd, allDay, location.trim(), description.trim(), reminderMinutes, rrule, style = styleForSave()) > 0
+            val id = viewModel.createLocalEvent(calendarId, title.trim(), newBegin, newEnd, allDay, location.trim(), description.trim(), reminderMinutes, rrule, style = styleForSave())
+            if (id > 0) markIds += id
+            return id > 0
         }
         return when {
             editScope == RecurrenceEditScope.THIS_ONLY -> viewModel.createSingleOccurrenceException(
@@ -497,7 +511,7 @@ private fun EventEditContent(
                 description = description.trim(),
                 reminderMinutes = reminderMinutes,
                 style = styleForSave(),
-            ) > 0
+            ).also { if (it > 0) markIds += it } > 0
             editScope == RecurrenceEditScope.THIS_AND_FOLLOWING -> {
                 val newAnchorDate = Instant.ofEpochMilli(newBegin).atZone(if (allDay) ZoneOffset.UTC else zone).toLocalDate()
                 viewModel.updateFollowingOccurrences(
@@ -515,7 +529,7 @@ private fun EventEditContent(
                     reminderMinutes = reminderMinutes,
                     newRrule = recurrenceRule.toRRuleString(newAnchorDate),
                     style = styleForSave(),
-                ) > 0
+                ).also { if (it > 0) markIds += it.toLong() } > 0
             }
             // ALL. 반복 일정이면 탭한 회차에 적용한 시간 이동분(델타)만큼 마스터의 진짜 DTSTART를
             // 함께 옮긴다 — 그래야 5번째 회차를 열어 시간만 한 시간 늦췄을 때 전체 시리즈가
@@ -537,6 +551,16 @@ private fun EventEditContent(
                 style = styleForSave(),
             ) > 0
         }
+    }
+
+    suspend fun performSave(calendarId: Long, editScope: RecurrenceEditScope): Boolean {
+        markIds.clear()
+        existing?.let { markIds += it.id }
+        val ok = performSaveCore(calendarId, editScope)
+        if (ok && (marksTouched || (existing == null && (birthday || anniversary)))) {
+            markIds.distinct().forEach { viewModel.setEventMark(it, birthday, anniversary) }
+        }
+        return ok
     }
 
     suspend fun performDelete(editScope: RecurrenceEditScope): Boolean {
@@ -628,6 +652,27 @@ private fun EventEditContent(
                 // 시리즈 전체에 대해 하나로 고정됨) — 예외 처리 로직을 단순하고 안전하게 유지하려고
                 // 기존 반복 일정을 열었을 때는 이 토글을 잠근다.
                 Switch(checked = allDay, onCheckedChange = { allDay = it }, enabled = !isRecurring)
+            }
+            // 생일: 매년 반복 + 제목 앞 🎂. 기념일: 매년 반복 + 공휴일과 같은 양식(빨간 막대·빨간 날짜). 둘 다 켤 수 있다.
+            fun ensureYearly() {
+                if (recurrenceRule.frequency == RecurrenceFrequency.NONE && !isRecurring) {
+                    recurrenceRule = RecurrenceRule(frequency = RecurrenceFrequency.YEARLY, interval = 1, endType = RecurrenceEndType.NEVER)
+                    allDay = true
+                }
+            }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(text = "생일 🎂", style = MaterialTheme.typography.bodyLarge)
+                    Text("매년 반복, 제목 앞에 🎂 표시", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Switch(checked = birthday, onCheckedChange = { birthday = it; marksTouched = true; if (it) ensureYearly() })
+            }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(text = "기념일", style = MaterialTheme.typography.bodyLarge)
+                    Text("매년 반복, 공휴일과 같은 양식(빨간 막대·빨간 날짜)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Switch(checked = anniversary, onCheckedChange = { anniversary = it; marksTouched = true; if (it) ensureYearly() })
             }
             Spacer(modifier = Modifier.height(8.dp))
 

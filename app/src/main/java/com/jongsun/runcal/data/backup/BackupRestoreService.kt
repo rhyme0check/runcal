@@ -257,7 +257,12 @@ object BackupRestoreService {
                 location = snapshot.location,
                 eventColor = snapshot.eventColor,
                 eventTypeId = snapshot.eventTypeId,
+                description = snapshot.description,
+                rrule = snapshot.rrule,
             )
+            if (newId > 0 && (snapshot.birthday || snapshot.anniversary)) {
+                db.eventTypeDao().upsertMark(com.jongsun.runcal.data.room.EventMarkEntity(newId, snapshot.birthday, snapshot.anniversary))
+            }
             if (newId > 0) restored++
         }
         return restored

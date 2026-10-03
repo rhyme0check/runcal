@@ -88,4 +88,10 @@ data class EventItem(
     val groupId: String? = null,
     // 그룹 색 또는 지금 보는 프리셋의 덮어쓰기 색. 있으면 [eventColor]·캘린더 색보다 우선한다.
     val displayColor: Int? = null,
+    // 생일·기념일 표시(수정2). 조회할 때 [withGroup]이 채운다.
+    val isBirthday: Boolean = false,
+    val isAnniversary: Boolean = false,
 )
+
+/** 생일 일정 제목 앞에 붙이는 표시. 편집 화면에서는 떼고 보여 준다(캘린더에 저장되는 제목에는 들어가지 않음). */
+const val BIRTHDAY_PREFIX = "🎂 "

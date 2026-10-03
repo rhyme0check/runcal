@@ -228,6 +228,12 @@ private fun WeekRow(
     onDateClick: (LocalDate) -> Unit,
     onDateLongClick: (LocalDate) -> Unit,
 ) {
+    val anniversaryDates = remember(allEvents, week) {
+        allEvents.filter { it.isAnniversary }.flatMap { e ->
+            val r = e.dateRange()
+            generateSequence(r.start) { d -> d.plusDays(1).takeIf { it <= r.endInclusive } }.toList()
+        }.toSet()
+    }
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
         Row(modifier = Modifier.fillMaxWidth()) {
             week.days.forEach { day ->
@@ -235,7 +241,8 @@ private fun WeekRow(
                     day = day,
                     isToday = day.date == today,
                     isSelected = day.date == selectedDate,
-                    isHoliday = specialFlags.showHolidays && specialSnapshot.isHoliday(day.date),
+                    // 기념일로 표시한 일정이 있는 날도 공휴일처럼 빨간 날짜로.
+                    isHoliday = (specialFlags.showHolidays && specialSnapshot.isHoliday(day.date)) || day.date in anniversaryDates,
                     lunarLabel = if (specialFlags.showLunar) specialSnapshot.lunarMarker(day.date) else null,
                     onClick = { onDateClick(day.date) },
                     onLongClick = { onDateLongClick(day.date) },

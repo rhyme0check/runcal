@@ -120,6 +120,9 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
     val calendars: StateFlow<List<CalendarInfo>> = _calendars.asStateFlow()
 
     /** 숨긴 캘린더까지 포함한 전체 목록(설정 > 목록 관리 전용). 다른 화면은 [calendars]를 쓴다. */
+    private val _eventTypes = MutableStateFlow<List<EventTypeEntity>>(emptyList())
+    val eventTypes: StateFlow<List<EventTypeEntity>> = _eventTypes.asStateFlow()
+
     private val _allCalendars = MutableStateFlow<List<CalendarInfo>>(emptyList())
     val allCalendars: StateFlow<List<CalendarInfo>> = _allCalendars.asStateFlow()
 
@@ -249,8 +252,6 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
         _eventColorStyles.value = db.eventColorStyleDao().getAll().associateBy { it.sourceKey }
     }
 
-    private val _eventTypes = MutableStateFlow<List<EventTypeEntity>>(emptyList())
-    val eventTypes: StateFlow<List<EventTypeEntity>> = _eventTypes.asStateFlow()
 
     suspend fun refreshEventTypes() {
         _eventTypes.value = db.eventTypeDao().getAll()
@@ -314,6 +315,16 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
     }
 
     suspend fun getEventTypeId(eventId: Long): String? = repository.getEventTypeId(eventId)
+
+    /** 일정의 생일·기념일 표시(앱 안에서만 저장). */
+    suspend fun getEventMark(eventId: Long): Pair<Boolean, Boolean> =
+        db.eventTypeDao().markFor(eventId)?.let { it.birthday to it.anniversary } ?: (false to false)
+
+    suspend fun setEventMark(eventId: Long, birthday: Boolean, anniversary: Boolean) {
+        val dao = db.eventTypeDao()
+        if (!birthday && !anniversary) dao.deleteMark(eventId) else dao.upsertMark(com.jongsun.runcal.data.room.EventMarkEntity(eventId, birthday, anniversary))
+        afterGroupsChanged()
+    }
 
     /**
      * 색 선택에 쓸 "이미 쓰이는 색": 모든 캘린더 색, Notion DB 색, 소스 색 스타일로 바꾼 색, 다른 유형 색.

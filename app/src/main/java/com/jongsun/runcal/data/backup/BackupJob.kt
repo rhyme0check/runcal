@@ -100,6 +100,10 @@ object BackupJob {
                     location = event.location,
                     eventColor = event.eventColor,
                     eventTypeId = calendarRepository.getEventTypeId(provenance.calendarEventId),
+                    rrule = event.rrule,
+                    description = event.description,
+                    birthday = db.eventTypeDao().markFor(provenance.calendarEventId)?.birthday ?: false,
+                    anniversary = db.eventTypeDao().markFor(provenance.calendarEventId)?.anniversary ?: false,
                 )
             }
         }

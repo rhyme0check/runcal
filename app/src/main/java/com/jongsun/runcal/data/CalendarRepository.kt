@@ -414,10 +414,13 @@ class CalendarRepository(private val context: Context) : EventSource {
         eventColor: Int? = snapshot.eventColor,
         eventTypeId: String? = null,
     ): Long {
+        // 생일·기념일 표시는 새 id로 옮긴다.
+        val mark = eventTypeDao.markFor(eventId)
         resolver.delete(ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId), null, null)
         provenanceDao.deleteByCalendarEventId(eventId)
         eventTypeDao.deleteAssignment(eventId)
         EventGroups.invalidate()
+        eventTypeDao.deleteMark(eventId)
 
         val values = ContentValues().apply {
             put(CalendarContract.Events.CALENDAR_ID, snapshot.calendarId)
@@ -441,6 +444,7 @@ class CalendarRepository(private val context: Context) : EventSource {
             provenanceDao.insert(LocalEventProvenanceEntity(newId, snapshot.calendarId, System.currentTimeMillis()))
             replaceReminders(newId, reminderMinutes)
             setEventType(newId, eventTypeId)
+            mark?.let { eventTypeDao.upsertMark(it.copy(eventId = newId)) }
         }
         return newId
     }
@@ -541,6 +545,7 @@ class CalendarRepository(private val context: Context) : EventSource {
             if (deleted > 0) {
                 provenanceDao.deleteByCalendarEventId(eventId)
                 eventTypeDao.deleteAssignment(eventId)
+                eventTypeDao.deleteMark(eventId)
                 EventGroups.invalidate()
             }
             deleted

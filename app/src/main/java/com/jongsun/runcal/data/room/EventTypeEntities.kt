@@ -26,6 +26,14 @@ data class EventTypeEntity(
     @ColumnInfo(defaultValue = "") val titleKeywords: String = "",
 )
 
+/** 일정(CalendarContract 이벤트 id)에 붙인 생일·기념일 표시(앱 안에서만 저장). 생일=제목 앞 🎂, 기념일=공휴일과 같은 양식. */
+@Entity(tableName = "event_marks")
+data class EventMarkEntity(
+    @PrimaryKey val eventId: Long,
+    val birthday: Boolean,
+    val anniversary: Boolean,
+)
+
 /** Notion 항목(페이지) → 그룹을 직접 정한 것. [typeId]가 빈 문자열이면 "그룹 없음"(제목 규칙도 적용하지 않음). 앱 안에서만 쓰고 Notion에는 쓰지 않는다. */
 @Entity(tableName = "notion_group_assignments", primaryKeys = ["registrationId", "pageId"])
 data class NotionGroupAssignmentEntity(
@@ -72,6 +80,18 @@ interface EventTypeDao {
 
     @Query("SELECT * FROM event_type_assignments")
     suspend fun allAssignments(): List<EventTypeAssignmentEntity>
+
+    @Query("SELECT * FROM event_marks")
+    suspend fun allMarks(): List<EventMarkEntity>
+
+    @Query("SELECT * FROM event_marks WHERE eventId = :eventId")
+    suspend fun markFor(eventId: Long): EventMarkEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertMark(mark: EventMarkEntity)
+
+    @Query("DELETE FROM event_marks WHERE eventId = :eventId")
+    suspend fun deleteMark(eventId: Long)
 
     @Query("SELECT * FROM notion_group_assignments")
     suspend fun allNotionAssignments(): List<NotionGroupAssignmentEntity>

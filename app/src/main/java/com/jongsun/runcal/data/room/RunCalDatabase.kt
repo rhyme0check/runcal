@@ -56,6 +56,15 @@ private val MIGRATION_4_5 = object : Migration(4, 5) {
     }
 }
 
+private val MIGRATION_8_9 = object : Migration(8, 9) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS event_marks (" +
+                "eventId INTEGER NOT NULL PRIMARY KEY, birthday INTEGER NOT NULL, anniversary INTEGER NOT NULL)",
+        )
+    }
+}
+
 private val MIGRATION_7_8 = object : Migration(7, 8) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("ALTER TABLE event_types ADD COLUMN titleKeywords TEXT NOT NULL DEFAULT ''")
@@ -99,8 +108,9 @@ private val MIGRATION_5_6 = object : Migration(5, 6) {
         EventTypeEntity::class,
         EventTypeAssignmentEntity::class,
         NotionGroupAssignmentEntity::class,
+        EventMarkEntity::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = true,
 )
 abstract class RunCalDatabase : RoomDatabase() {
@@ -121,7 +131,7 @@ abstract class RunCalDatabase : RoomDatabase() {
                     context.applicationContext,
                     RunCalDatabase::class.java,
                     "runcal_database",
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8).build().also { instance = it }
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9).build().also { instance = it }
             }
     }
 }
