@@ -8,7 +8,11 @@ import com.jongsun.runcal.ai.AiScope
 import com.jongsun.runcal.ai.AssistantDataSource
 import com.jongsun.runcal.ai.AssistantEngine
 import com.jongsun.runcal.ai.AssistantException
+import com.jongsun.runcal.ai.ChangeEntry
 import com.jongsun.runcal.ai.ChangeLog
+import com.jongsun.runcal.data.notion.NotionUndoStore
+import com.jongsun.runcal.data.notion.NotionWriteResult
+import com.jongsun.runcal.data.source.EventSourceKind
 import com.jongsun.runcal.ai.ChoiceRequest
 import com.jongsun.runcal.ai.GeminiClient
 import com.jongsun.runcal.ai.ProposalItem
@@ -40,6 +44,12 @@ data class ProposalCardState(
     /** 이 시각까지 "실행 취소"를 누를 수 있다. null이면 되돌릴 수 없는(또는 되돌릴 게 없는) 상태. */
     val undoUntilMillis: Long? = null,
     val undoNote: String? = null,
+    /** 항목별 결과 문구(다시 시도 때 성공한 항목의 결과를 유지하기 위해). */
+    val resultByKey: Map<String, String> = emptyMap(),
+    /** 실패했지만 다시 시도할 수 있는 항목(Notion). */
+    val retryKeys: List<String> = emptyList(),
+    /** 앞 항목 실패로 실행하지 않은 항목 수. */
+    val cancelledCount: Int = 0,
 )
 
 enum class ChoiceStatus { PENDING, CHOSEN, CANCELLED }
@@ -57,6 +67,9 @@ data class ChatMessage(
 )
 
 private const val UNDO_WINDOW_MILLIS = 10_000L
+
+/** Notion 변경은 일괄 처리가 길어질 수 있어 카드의 실행 취소 시간을 더 길게 준다(이후 24시간은 변경 기록에서). */
+private const val NOTION_UNDO_WINDOW_MILLIS = 60_000L
 private const val YEAR_MILLIS = 365L * 24 * 60 * 60 * 1000
 
 /**
@@ -157,54 +170,106 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
         val active = engine ?: return
         _busy.value = true
         viewModelScope.launch {
-            val mutator = AssistantMutator(calendarViewModel, active.describer)
-            val lines = ArrayList<String>()
-            val undos = ArrayList<suspend () -> Boolean>()
-            var allUndoable = true
-            var executed = 0
-            var failed = false
-            for (item in card.items) {
-                if (failed) {
-                    active.resolve(item.callKey, status("cancelled", "앞선 항목이 실패해 실행하지 않았다"))
-                    continue
-                }
-                val outcome = try {
-                    mutator.execute(item, card.calendars[item.callKey] ?: item.calendarId, card.scopes[item.callKey])
-                } catch (e: Exception) {
-                    MutationOutcome(false, "실행 중 오류가 났습니다", "실패: 실행 중 오류")
-                }
-                ChangeLog.append(getApplication(), if (outcome.ok) "실행" else "실패", outcome.logSummary)
-                lines += (if (outcome.ok) "✔ " else "✖ ") + outcome.message
-                if (outcome.ok) {
-                    executed++
-                    outcome.undo?.let { undos += it } ?: run { allUndoable = false }
-                    val done = buildJsonObject {
-                        put("status", "done")
-                        outcome.createdId?.let { id ->
-                            calendarViewModel.getEventDetail(id)?.let { put("createdRef", active.registerEvent(it)) }
-                        }
+            try {
+                runItems(messageId, card.items, card, calendarViewModel, active, previous = null)
+            } finally {
+                _busy.value = false
+            }
+        }
+    }
+
+    /** 실패했지만 다시 시도할 수 있는 Notion 항목만 다시 실행한다(이미 성공한 항목은 건드리지 않음). */
+    fun retry(messageId: Long, calendarViewModel: CalendarViewModel) {
+        val card = _messages.value.firstOrNull { it.id == messageId }?.card ?: return
+        if (card.retryKeys.isEmpty() || _busy.value) return
+        val active = engine ?: return
+        val items = card.items.filter { it.callKey in card.retryKeys }
+        _busy.value = true
+        viewModelScope.launch {
+            try {
+                runItems(messageId, items, card, calendarViewModel, active, previous = card)
+            } finally {
+                _busy.value = false
+            }
+        }
+    }
+
+    /**
+     * 항목을 차례로 실행한다. 캘린더 일정은 하나라도 실패하면 거기서 멈추고(뒤 항목은 취소), Notion 항목은 서로 독립이라
+     * 실패해도 나머지를 계속 실행한 뒤 실패한 것만 [retry]로 다시 시도할 수 있게 남긴다.
+     */
+    private suspend fun runItems(
+        messageId: Long,
+        items: List<ProposalItem>,
+        card: ProposalCardState,
+        calendarViewModel: CalendarViewModel,
+        active: AssistantEngine,
+        previous: ProposalCardState?,
+    ) {
+        val mutator = AssistantMutator(calendarViewModel, active.describer)
+        val results = LinkedHashMap(previous?.resultByKey.orEmpty())
+        val undos = ArrayList(undoActions[messageId].orEmpty())
+        val executedBefore = results.values.count { it.startsWith("✔ ") }
+        var allUndoable = executedBefore == 0 || undoActions.containsKey(messageId)
+        var stopped = false
+        var cancelled = previous?.cancelledCount ?: 0
+        val retryKeys = ArrayList<String>()
+        val hasNotion = card.items.any { it.target?.sourceKind == EventSourceKind.NOTION }
+        for (item in items) {
+            if (stopped) {
+                active.resolve(item.callKey, status("cancelled", "앞선 항목이 실패해 실행하지 않았다"))
+                cancelled++
+                continue
+            }
+            val outcome = try {
+                mutator.execute(item, card.calendars[item.callKey] ?: item.calendarId, card.scopes[item.callKey])
+            } catch (e: Exception) {
+                MutationOutcome(false, "실행 중 오류가 났습니다", "실패: 실행 중 오류", retryable = item.target?.sourceKind == EventSourceKind.NOTION)
+            }
+            ChangeLog.append(getApplication(), if (outcome.ok) "실행" else "실패", outcome.logSummary, outcome.undoIds)
+            results[item.callKey] = (if (outcome.ok) "✔ " else "✖ ") + outcome.message
+            if (outcome.ok) {
+                outcome.undo?.let { undos += it } ?: run { allUndoable = false }
+                val done = buildJsonObject {
+                    put("status", "done")
+                    outcome.createdId?.let { id ->
+                        calendarViewModel.getEventDetail(id)?.let { put("createdRef", active.registerEvent(it)) }
                     }
-                    active.resolve(item.callKey, done)
+                }
+                active.resolve(item.callKey, done)
+            } else {
+                active.resolve(item.callKey, status("failed", outcome.message))
+                if (item.target?.sourceKind == EventSourceKind.NOTION) {
+                    if (outcome.retryable) retryKeys += item.callKey
                 } else {
-                    failed = true
-                    active.resolve(item.callKey, status("failed", outcome.message))
+                    stopped = true
                 }
             }
-            val canUndo = executed > 0 && !failed && allUndoable
-            if (canUndo) undoActions[messageId] = undos
-            updateCard(messageId) {
-                it.copy(
-                    status = when {
-                        !failed -> CardStatus.EXECUTED
-                        executed > 0 -> CardStatus.PARTIAL
-                        else -> CardStatus.FAILED
-                    },
-                    resultLines = lines,
-                    undoUntilMillis = if (canUndo) System.currentTimeMillis() + UNDO_WINDOW_MILLIS else null,
-                    undoNote = if (executed > 0 && !canUndo) "이 변경은 되돌리기를 지원하지 않아 변경 기록에만 남깁니다." else null,
-                )
-            }
-            _busy.value = false
+        }
+        val executed = results.values.count { it.startsWith("✔ ") }
+        val failedAny = stopped || cancelled > 0 || results.values.any { it.startsWith("✖ ") }
+        // Notion 일괄 변경은 일부가 실패해도 성공한 것들은 되돌릴 수 있게 한다. 캘린더 일정은 전부 성공했을 때만.
+        val canUndo = executed > 0 && allUndoable && (hasNotion || !failedAny)
+        if (canUndo) undoActions[messageId] = undos else undoActions.remove(messageId)
+        val window = if (hasNotion) NOTION_UNDO_WINDOW_MILLIS else UNDO_WINDOW_MILLIS
+        updateCard(messageId) {
+            it.copy(
+                status = when {
+                    !failedAny -> CardStatus.EXECUTED
+                    executed > 0 -> CardStatus.PARTIAL
+                    else -> CardStatus.FAILED
+                },
+                resultLines = results.values.toList(),
+                resultByKey = results,
+                undoUntilMillis = if (canUndo) System.currentTimeMillis() + window else null,
+                undoNote = when {
+                    executed > 0 && !canUndo -> "이 변경은 되돌리기를 지원하지 않아 변경 기록에만 남깁니다."
+                    hasNotion && executed > 0 -> "Notion 변경은 24시간 동안 변경 기록에서도 되돌릴 수 있습니다."
+                    else -> null
+                },
+                retryKeys = retryKeys,
+                cancelledCount = cancelled,
+            )
         }
     }
 
@@ -220,7 +285,7 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
     fun undo(messageId: Long) {
         val card = _messages.value.firstOrNull { it.id == messageId }?.card ?: return
         val until = card.undoUntilMillis ?: return
-        if (card.status != CardStatus.EXECUTED || System.currentTimeMillis() > until) return
+        if ((card.status != CardStatus.EXECUTED && card.status != CardStatus.PARTIAL) || System.currentTimeMillis() > until) return
         val actions = undoActions.remove(messageId) ?: return
         if (_busy.value) return
         _busy.value = true
@@ -234,6 +299,7 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
                 it.copy(
                     status = if (ok) CardStatus.UNDONE else it.status,
                     undoUntilMillis = null,
+                    retryKeys = emptyList(),
                     undoNote = if (ok) "실행을 되돌렸습니다." else "되돌리지 못했습니다. 변경 기록을 확인하세요.",
                 )
             }
@@ -242,6 +308,25 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun changeLog() = ChangeLog.recent(getApplication())
+
+    /** 변경 기록의 Notion 항목을 아직 되돌릴 수 있는지(24시간 이내, 아직 되돌리지 않음). */
+    fun canUndoFromLog(entry: ChangeEntry): Boolean =
+        entry.undoIds.isNotEmpty() && entry.undoIds.all { NotionUndoStore.isUndoable(getApplication(), it) }
+
+    /** 변경 기록에서 Notion 변경을 되돌린다. 결과 문구를 돌려준다. */
+    suspend fun undoFromLog(entry: ChangeEntry, calendarViewModel: CalendarViewModel): String {
+        var message = "되돌렸습니다."
+        for (id in entry.undoIds.asReversed()) {
+            when (val result = calendarViewModel.undoNotionChange(id)) {
+                is NotionWriteResult.Ok -> Unit
+                is NotionWriteResult.Conflict -> message = "그 뒤 Notion에서 다시 바뀐 항목이라 되돌리지 않았습니다."
+                is NotionWriteResult.Failed -> message = result.message
+            }
+        }
+        val ok = message == "되돌렸습니다."
+        ChangeLog.append(getApplication(), if (ok) "되돌림" else "되돌림 실패", entry.summary)
+        return message
+    }
 
     fun newConversation() {
         engine?.reset()
@@ -297,5 +382,6 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
         override fun calendars(): List<CalendarInfo> = vm.calendars.value
         override fun weekStartDay(): DayOfWeek = vm.weekStartDay.value
         override fun defaultReminderMinutes(): List<Int> = vm.defaultReminderMinutes.value?.let { listOf(it) } ?: emptyList()
+        override fun notionDatabases() = vm.notionDatabases.value
     }
 }

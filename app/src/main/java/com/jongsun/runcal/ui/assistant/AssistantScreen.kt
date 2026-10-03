@@ -49,6 +49,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -74,6 +75,7 @@ import java.time.format.TextStyle
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 private const val PRIVACY_LINE = "무료 등급 사용 중 — 입력한 명령 문장은 Google로 전송됩니다"
 
@@ -148,6 +150,7 @@ fun AssistantScreen(
                         onConfirm = { assistant.confirm(message.id, calendarViewModel) },
                         onCancel = { assistant.cancel(message.id) },
                         onUndo = { assistant.undo(message.id) },
+                        onRetry = { assistant.retry(message.id, calendarViewModel) },
                         onChoose = { ref -> assistant.choose(message.id, ref, calendarViewModel) },
                         onCancelChoice = { assistant.cancelChoice(message.id) },
                         busy = busy,
@@ -181,23 +184,42 @@ fun AssistantScreen(
         }
     }
 
-    if (showLog) ChangeLogDialog(assistant = assistant, onDismiss = { showLog = false })
+    if (showLog) ChangeLogDialog(assistant = assistant, calendarViewModel = calendarViewModel, onDismiss = { showLog = false })
 }
 
 @Composable
-private fun ChangeLogDialog(assistant: AssistantViewModel, onDismiss: () -> Unit) {
-    val entries = remember { assistant.changeLog() }
+private fun ChangeLogDialog(assistant: AssistantViewModel, calendarViewModel: CalendarViewModel, onDismiss: () -> Unit) {
+    var version by remember { mutableStateOf(0) }
+    val entries = remember(version) { assistant.changeLog() }
     val format = remember { SimpleDateFormat("M/d HH:mm", Locale.KOREAN) }
+    val scope = rememberCoroutineScope()
+    var working by remember { mutableStateOf(false) }
+    var notice by remember { mutableStateOf<String?>(null) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("변경 기록") },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                notice?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
                 if (entries.isEmpty()) Text("아직 기록이 없습니다.", style = MaterialTheme.typography.bodyMedium)
                 entries.forEach { e ->
                     Column {
                         Text("${format.format(Date(e.atMillis))} · ${e.kind}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(e.summary, style = MaterialTheme.typography.bodySmall)
+                        // Notion 변경은 24시간 동안 여기서 되돌릴 수 있다(그 사이 Notion에서 다시 바뀌었으면 되돌리지 않음).
+                        if (remember(e, version) { assistant.canUndoFromLog(e) }) {
+                            TextButton(
+                                enabled = !working,
+                                onClick = {
+                                    working = true
+                                    scope.launch {
+                                        notice = assistant.undoFromLog(e, calendarViewModel)
+                                        working = false
+                                        version++
+                                    }
+                                },
+                            ) { Text("되돌리기") }
+                        }
                     }
                 }
                 Text("이 기록은 이 기기에만 저장되며 백업·전송되지 않습니다.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -217,6 +239,7 @@ private fun MessageBubble(
     onConfirm: () -> Unit,
     onCancel: () -> Unit,
     onUndo: () -> Unit,
+    onRetry: () -> Unit,
     onChoose: (String) -> Unit,
     onCancelChoice: () -> Unit,
     busy: Boolean,
@@ -252,7 +275,7 @@ private fun MessageBubble(
             }
         }
         message.card?.let { card ->
-            ProposalCardView(message.id, card, calendars, onScope, onCalendar, onConfirm, onCancel, onUndo, busy)
+            ProposalCardView(message.id, card, calendars, onScope, onCalendar, onConfirm, onCancel, onUndo, onRetry, busy)
         }
         message.choice?.let { choice -> ChoiceCardView(choice, calendarName, onChoose, onCancelChoice, busy) }
     }
@@ -312,6 +335,7 @@ private fun ProposalCardView(
     onConfirm: () -> Unit,
     onCancel: () -> Unit,
     onUndo: () -> Unit,
+    onRetry: () -> Unit,
     busy: Boolean,
 ) {
     val hasDelete = card.items.any { it.kind == ProposalKind.DELETE }
@@ -341,6 +365,9 @@ private fun ProposalCardView(
         )
         if (card.items.size > 1) {
             Text("${card.items.size}건을 한 번에 처리합니다. 전체 목록을 확인하세요.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (card.items.size > 10) {
+                Text("10건이 넘는 일괄 변경입니다. 날짜가 모두 맞는지 하나씩 확인하세요.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            }
         }
 
         card.items.forEach { item ->
@@ -368,7 +395,7 @@ private fun ProposalCardView(
         } else {
             card.resultLines.forEach { Text(it, style = MaterialTheme.typography.bodyMedium) }
             val until = card.undoUntilMillis
-            if (until != null && card.status == CardStatus.EXECUTED) {
+            if (until != null && (card.status == CardStatus.EXECUTED || card.status == CardStatus.PARTIAL)) {
                 val now by produceState(System.currentTimeMillis(), messageId, until) {
                     while (value < until) {
                         delay(300)
@@ -378,6 +405,9 @@ private fun ProposalCardView(
                 if (now < until) {
                     OutlinedButton(onClick = onUndo, enabled = !busy) { Text("실행 취소 (${((until - now) / 1000 + 1)}초)") }
                 }
+            }
+            if (card.retryKeys.isNotEmpty()) {
+                OutlinedButton(onClick = onRetry, enabled = !busy) { Text("실패한 ${card.retryKeys.size}건 다시 시도") }
             }
             card.undoNote?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
@@ -395,7 +425,7 @@ private fun ItemBlock(
 ) {
     val label = when (item.kind) {
         ProposalKind.CREATE -> "추가"
-        ProposalKind.UPDATE -> "수정"
+        ProposalKind.UPDATE -> if (item.target?.sourceKind == EventSourceKind.NOTION) "Notion 수정" else "수정"
         ProposalKind.DELETE -> "삭제"
     }
     val labelColor = if (item.kind == ProposalKind.DELETE) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary

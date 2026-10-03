@@ -4,6 +4,8 @@ import android.util.Log
 import com.jongsun.runcal.data.notion.NotionApiClient
 import com.jongsun.runcal.data.notion.NotionApiException
 import com.jongsun.runcal.data.notion.NotionPropertyMapper
+import com.jongsun.runcal.data.notion.NotionSchemaSummary
+import com.jongsun.runcal.data.notion.encode
 import com.jongsun.runcal.data.room.NotionDatabaseDao
 import com.jongsun.runcal.data.room.NotionDatabaseEntity
 import com.jongsun.runcal.data.room.NotionEventDao
@@ -62,6 +64,15 @@ class NotionSyncJob(
             return NotionSyncResult(registration.id, 0, "SCHEMA_INVALID", "매핑된 날짜/제목 속성이 스키마에 없음")
         }
 
+        // 상태 옵션 목록은 앱에서 상태를 바꿀 때(P8) 쓰므로 매 동기화마다 최신으로 저장해 둔다.
+        val statusSchema = registration.statusProperty?.let { schema.properties[it] }
+        val summary = NotionSchemaSummary(
+            statusOptions = statusSchema?.optionNames.orEmpty(),
+            statusType = statusSchema?.type?.takeIf { it == "status" || it == "select" },
+            dateIsDate = schema.properties[registration.dateProperty]?.type == "date",
+        )
+        notionDatabaseDao.updateSchemaJson(registration.id, summary.encode(), nowMillis)
+
         // 2. 날짜 속성 기준 필터로 동기화 윈도우만 페이지네이션 조회
         val today = LocalDate.now()
         val filter = buildJsonObject {
@@ -93,21 +104,7 @@ class NotionSyncJob(
                 queryMs += System.currentTimeMillis() - queryStart
                 pageCount++
                 for (notionPage in page.results) {
-                    val dateRange = NotionPropertyMapper.extractDateRange(notionPage.properties, registration.dateProperty) ?: continue
-                    val (startMillis, endMillis, allDay) = NotionPropertyMapper.toEpochMillisRange(dateRange.first, dateRange.second, zone)
-                    events += NotionEventEntity(
-                        registrationId = registration.id,
-                        notionPageId = notionPage.id,
-                        title = NotionPropertyMapper.extractTitle(notionPage.properties, registration.titleProperty),
-                        subtitle = NotionPropertyMapper.extractDisplayText(notionPage.properties, registration.subtitleProperty),
-                        statusRaw = NotionPropertyMapper.extractDisplayText(notionPage.properties, registration.statusProperty),
-                        startMillis = startMillis,
-                        endMillis = endMillis,
-                        allDay = allDay,
-                        notionUrl = notionPage.url,
-                        lastEditedTimeIso = notionPage.lastEditedTime,
-                        fetchedAtMillis = nowMillis,
-                    )
+                    events += NotionPropertyMapper.toEntity(registration, notionPage, zone, nowMillis) ?: continue
                 }
                 cursor = page.nextCursor.takeIf { page.hasMore }
             } while (cursor != null)

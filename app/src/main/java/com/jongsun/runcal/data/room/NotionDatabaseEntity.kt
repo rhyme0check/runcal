@@ -1,5 +1,6 @@
 package com.jongsun.runcal.data.room
 
+import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Entity
 import androidx.room.Insert
@@ -30,6 +31,8 @@ data class NotionDatabaseEntity(
     val lastSyncStatus: String,
     val lastSyncError: String?,
     val createdAtMillis: Long,
+    /** 앱에서 이 DB의 날짜·상태를 바꿔도 되는지(P8). 기본 꺼짐 — 사용자가 설정에서 DB별로 켠다. 백업에는 넣지 않는다(복원 시 항상 꺼진 상태). */
+    @ColumnInfo(defaultValue = "0") val writeEnabled: Boolean = false,
 )
 
 @Dao
@@ -50,4 +53,11 @@ interface NotionDatabaseDao {
         "UPDATE notion_databases SET lastSyncedAtMillis = :atMillis, lastSyncStatus = :status, lastSyncError = :error WHERE id = :id",
     )
     suspend fun updateSyncResult(id: String, atMillis: Long, status: String, error: String?)
+
+    @Query("UPDATE notion_databases SET writeEnabled = :enabled WHERE id = :id")
+    suspend fun setWriteEnabled(id: String, enabled: Boolean)
+
+    /** 동기화 때 받은 스키마 일부(상태 옵션 목록 등)를 저장한다. */
+    @Query("UPDATE notion_databases SET schemaJson = :schemaJson, lastSchemaCheckedAtMillis = :atMillis WHERE id = :id")
+    suspend fun updateSchemaJson(id: String, schemaJson: String, atMillis: Long)
 }

@@ -163,7 +163,7 @@ private fun recurrenceSummary(rule: RecurrenceRule, startDate: LocalDate): Strin
 @Composable
 fun EventEditDialog(viewModel: CalendarViewModel, existing: EventItem?, initialDate: LocalDate, onDismiss: () -> Unit) {
     if (existing != null && existing.sourceKind == EventSourceKind.NOTION) {
-        NotionReadOnlyDialog(event = existing, onDismiss = onDismiss)
+        NotionItemDialog(viewModel = viewModel, event = existing, onDismiss = onDismiss)
         return
     }
 
@@ -174,37 +174,178 @@ fun EventEditDialog(viewModel: CalendarViewModel, existing: EventItem?, initialD
     }
 }
 
+/**
+ * Notion 항목 화면. DB가 "앱에서 수정"으로 켜져 있으면 날짜와 상태만 바꿀 수 있다(제목·본문은 Notion에서).
+ * 저장은 [CalendarViewModel.applyNotionChange]로 — 저장 직전에 Notion에서 다시 읽어 그 사이 바뀌었으면 저장하지 않는다.
+ */
 @Composable
-private fun NotionReadOnlyDialog(event: EventItem, onDismiss: () -> Unit) {
+private fun NotionItemDialog(viewModel: CalendarViewModel, event: EventItem, onDismiss: () -> Unit) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val notionDatabases by viewModel.notionDatabases.collectAsStateWithLifecycle()
+    val database = notionDatabases.firstOrNull { it.id == event.notionDatabaseId }
+    val writable = database?.writeEnabled == true
+    val statusOptions = remember(database) { com.jongsun.runcal.data.notion.parseSchemaSummary(database?.schemaJson).statusOptions }
+    val zone = remember { ZoneId.systemDefault() }
+
+    val original = remember(event) { com.jongsun.runcal.data.notion.NotionWriteService.specOf(event.allDay, event.begin, event.end, zone) }
+    var startDate by remember { mutableStateOf(event.dateRange(zone).start) }
+    var endDate by remember { mutableStateOf(event.dateRange(zone).endInclusive) }
+    var startTime by remember { mutableStateOf(Instant.ofEpochMilli(event.begin).atZone(zone).toLocalTime()) }
+    var endTime by remember { mutableStateOf(Instant.ofEpochMilli(event.end).atZone(zone).toLocalTime()) }
+    var status by remember { mutableStateOf(event.notionStatus) }
+    var picker by remember { mutableStateOf<String?>(null) }
+    var saving by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf<String?>(null) }
+
+    val newSpec: com.jongsun.runcal.data.notion.NotionDateSpec = if (event.allDay) {
+        com.jongsun.runcal.data.notion.NotionDateSpec.AllDay(startDate, maxOf(startDate, endDate))
+    } else {
+        // 원래 며칠에 걸친 항목이면 그 일수 차이를 유지한다(상태만 바꿀 때 날짜가 바뀐 것으로 잡히지 않게).
+        val dayOffset = (original as? com.jongsun.runcal.data.notion.NotionDateSpec.Timed)?.let { o ->
+            o.end?.let { java.time.temporal.ChronoUnit.DAYS.between(o.start.toLocalDate(), it.toLocalDate()) }
+        } ?: 0L
+        val start = startDate.atTime(startTime)
+        val end = startDate.plusDays(dayOffset).atTime(endTime).let { if (it < start) start else it }
+        com.jongsun.runcal.data.notion.NotionDateSpec.Timed(start, end)
+    }
+    val dateChanged = newSpec != original
+    val statusChanged = status != event.notionStatus && status != null
+    val changed = dateChanged || statusChanged
+
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (!saving) onDismiss() },
         title = { Text(event.title.ifBlank { "(제목 없음)" }) },
         text = {
-            Column {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    text = "이 일정은 Notion에서 가져온 항목이라 앱에서 편집할 수 없습니다.",
-                    style = MaterialTheme.typography.bodyMedium,
+                    text = database?.displayName ?: "Notion",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                if (event.location.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(text = event.location, style = MaterialTheme.typography.bodySmall)
+                if (event.location.isNotBlank()) Text(text = event.location, style = MaterialTheme.typography.bodySmall)
+                if (!writable) {
+                    Text(
+                        text = "이 DB는 읽기 전용입니다. 날짜·상태를 바꾸려면 설정 > Notion 연동에서 '앱에서 수정'을 켜세요.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                } else {
+                    Text("날짜", style = MaterialTheme.typography.labelMedium)
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedButton(onClick = { picker = "startDate" }, enabled = !saving) { Text(formatDate(startDate)) }
+                        if (event.allDay) {
+                            Text("~")
+                            OutlinedButton(onClick = { picker = "endDate" }, enabled = !saving) { Text(formatDate(endDate)) }
+                        }
+                    }
+                    if (!event.allDay) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                            OutlinedButton(onClick = { picker = "startTime" }, enabled = !saving) { Text(formatTime(startTime)) }
+                            Text("~")
+                            OutlinedButton(onClick = { picker = "endTime" }, enabled = !saving) { Text(formatTime(endTime)) }
+                        }
+                    }
+                    if (database.statusProperty != null && statusOptions.isNotEmpty()) {
+                        Text(database.statusProperty, style = MaterialTheme.typography.labelMedium)
+                        Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            statusOptions.forEach { option ->
+                                FilterChip(
+                                    selected = status == option,
+                                    onClick = { if (!saving) status = option },
+                                    label = { Text(option) },
+                                )
+                            }
+                        }
+                    }
+                    Text(
+                        text = "저장 직전에 Notion에서 다시 확인하고, 그 사이 바뀌었으면 저장하지 않습니다. 저장 후 24시간 동안 AI 명령의 변경 기록에서 되돌릴 수 있습니다.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
+                message?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
             }
         },
         confirmButton = {
-            TextButton(
-                enabled = !event.notionUrl.isNullOrBlank(),
-                onClick = {
-                    val url = event.notionUrl ?: return@TextButton
-                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                    onDismiss()
-                },
-            ) { Text("Notion에서 열기") }
+            if (writable) {
+                TextButton(
+                    enabled = changed && !saving,
+                    onClick = {
+                        saving = true
+                        message = null
+                        scope.launch {
+                            val change = com.jongsun.runcal.data.notion.NotionChange(
+                                date = if (dateChanged) newSpec else null,
+                                status = if (statusChanged) status else null,
+                            )
+                            val result = viewModel.applyNotionChange(event, change)
+                            saving = false
+                            when (result) {
+                                is com.jongsun.runcal.data.notion.NotionWriteResult.Ok -> {
+                                    val lines = buildList {
+                                        if (dateChanged) add("날짜 변경")
+                                        if (statusChanged) add("상태: '${event.notionStatus ?: "없음"}' → '$status'")
+                                    }
+                                    com.jongsun.runcal.ai.ChangeLog.append(
+                                        context, "직접 수정", "Notion 수정: '${event.title}' · " + lines.joinToString(" / "), listOf(result.undoId),
+                                    )
+                                    android.widget.Toast.makeText(context, "Notion에 반영했습니다", android.widget.Toast.LENGTH_SHORT).show()
+                                    onDismiss()
+                                }
+                                is com.jongsun.runcal.data.notion.NotionWriteResult.Conflict -> message = result.message
+                                is com.jongsun.runcal.data.notion.NotionWriteResult.Failed -> message = result.message
+                            }
+                        }
+                    },
+                ) { Text("저장") }
+            } else {
+                TextButton(onClick = onDismiss) { Text("닫기") }
+            }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("닫기") } },
+        dismissButton = {
+            Row {
+                TextButton(
+                    enabled = !event.notionUrl.isNullOrBlank() && !saving,
+                    onClick = {
+                        val url = event.notionUrl ?: return@TextButton
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                        onDismiss()
+                    },
+                ) { Text("Notion에서 열기") }
+                if (writable) TextButton(onClick = onDismiss, enabled = !saving) { Text("닫기") }
+            }
+        },
     )
+
+    when (picker) {
+        "startDate" -> EventDatePickerDialog(startDate, onDismiss = { picker = null }) { picked ->
+            // 시작일을 옮기면 기간 길이를 유지한 채 끝 날짜도 함께 옮긴다.
+            val length = java.time.temporal.ChronoUnit.DAYS.between(startDate, endDate)
+            startDate = picked
+            endDate = picked.plusDays(length)
+            picker = null
+        }
+        "endDate" -> EventDatePickerDialog(endDate, onDismiss = { picker = null }) { picked ->
+            endDate = maxOf(picked, startDate)
+            picker = null
+        }
+        "startTime" -> EventTimePickerDialog(startTime, onDismiss = { picker = null }) { picked ->
+            val minutes = java.time.Duration.between(startTime, endTime).toMinutes()
+            startTime = picked
+            endTime = picked.plusMinutes(minutes.coerceAtLeast(0))
+            picker = null
+        }
+        "endTime" -> EventTimePickerDialog(endTime, onDismiss = { picker = null }) { picked ->
+            endTime = picked
+            picker = null
+        }
+    }
 }
+
+private fun formatDate(date: LocalDate): String =
+    "${date.monthValue}/${date.dayOfMonth}(${date.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.KOREAN)})"
+
+private fun formatTime(time: LocalTime): String = "%02d:%02d".format(time.hour, time.minute)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

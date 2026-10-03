@@ -51,6 +51,12 @@ interface NotionEventDao {
     @Query("SELECT * FROM notion_events WHERE startMillis < :endMillis AND endMillis > :startMillis")
     suspend fun getEventsInRangeAllDbs(startMillis: Long, endMillis: Long): List<NotionEventEntity>
 
+    @Query("SELECT * FROM notion_events WHERE registrationId = :registrationId AND notionPageId = :pageId")
+    suspend fun getByPage(registrationId: String, pageId: String): NotionEventEntity?
+
+    @Query("DELETE FROM notion_events WHERE registrationId = :registrationId AND notionPageId = :pageId")
+    suspend fun deleteByPage(registrationId: String, pageId: String)
+
     @Query("DELETE FROM notion_events WHERE registrationId = :registrationId")
     suspend fun deleteAllForDatabase(registrationId: String)
 

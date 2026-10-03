@@ -22,6 +22,9 @@ import com.jongsun.runcal.data.DEFAULT_REMINDER_MINUTES
 import com.jongsun.runcal.data.DEFAULT_WEEK_START_DAY
 import com.jongsun.runcal.data.EventItem
 import com.jongsun.runcal.data.notion.NotionApiClient
+import com.jongsun.runcal.data.notion.NotionChange
+import com.jongsun.runcal.data.notion.NotionWriteResult
+import com.jongsun.runcal.data.notion.NotionWriteService
 import com.jongsun.runcal.data.notion.NotionDatabaseSchemaResponse
 import com.jongsun.runcal.data.occursOn
 import com.jongsun.runcal.data.room.EventColorStyleEntity
@@ -64,6 +67,7 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
     private val notionEventSource = NotionEventSource(db.notionEventDao(), db.notionDatabaseDao())
     private val eventRepository = EventRepository(repository, notionEventSource)
     private val notionSyncJob = NotionSyncJob(db.notionDatabaseDao(), db.notionEventDao(), notionApiClient)
+    private val notionWriteService by lazy { NotionWriteService(application) }
     private val zone: ZoneId = ZoneId.systemDefault()
 
     val today: LocalDate = LocalDate.now()
@@ -570,6 +574,32 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
 
     suspend fun deleteNotionDatabase(id: String) {
         db.notionDatabaseDao().deleteById(id)
+        refreshNotionDatabases()
+        invalidateCache()
+        ensureMonthLoaded(_visibleYearMonth.value, force = true)
+        RunCalWidgetRenderer.updateAllWidgets(getApplication())
+    }
+
+    /** DB별 "앱에서 수정 허용"(P8). 끄면 날짜·상태 변경이 모두 막힌다. */
+    suspend fun setNotionWriteEnabled(id: String, enabled: Boolean) {
+        db.notionDatabaseDao().setWriteEnabled(id, enabled)
+        refreshNotionDatabases()
+    }
+
+    /** Notion 항목의 날짜·상태를 바꾼다. 성공·충돌(재동기화됨) 모두 화면·위젯을 새로 그린다. */
+    suspend fun applyNotionChange(event: EventItem, change: NotionChange): NotionWriteResult {
+        val result = notionWriteService.apply(event, change)
+        if (result !is NotionWriteResult.Failed) afterNotionWrite()
+        return result
+    }
+
+    suspend fun undoNotionChange(undoId: String): NotionWriteResult {
+        val result = notionWriteService.undo(undoId)
+        if (result !is NotionWriteResult.Failed) afterNotionWrite()
+        return result
+    }
+
+    private suspend fun afterNotionWrite() {
         refreshNotionDatabases()
         invalidateCache()
         ensureMonthLoaded(_visibleYearMonth.value, force = true)

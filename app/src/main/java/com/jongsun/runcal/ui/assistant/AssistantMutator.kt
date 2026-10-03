@@ -6,6 +6,10 @@ import com.jongsun.runcal.ai.ProposalBuilder
 import com.jongsun.runcal.ai.ProposalItem
 import com.jongsun.runcal.ai.ProposalKind
 import com.jongsun.runcal.data.EventItem
+import com.jongsun.runcal.data.notion.NotionChange
+import com.jongsun.runcal.data.notion.NotionWriteResult
+import com.jongsun.runcal.data.notion.NotionWriteService
+import com.jongsun.runcal.data.source.EventSourceKind
 import com.jongsun.runcal.data.parseRRule
 import com.jongsun.runcal.data.toRRuleString
 import com.jongsun.runcal.ui.calendar.CalendarViewModel
@@ -20,6 +24,10 @@ data class MutationOutcome(
     val logSummary: String,
     val undo: (suspend () -> Boolean)? = null,
     val createdId: Long? = null,
+    /** Notion 변경의 되돌리기 기록 id(변경 기록 화면에서 24시간 동안 되돌릴 수 있음). */
+    val undoIds: List<String> = emptyList(),
+    /** 실패했지만 다시 시도해도 되는 경우(네트워크·한도 초과). 충돌(그 사이 Notion에서 바뀜)은 다시 시도하지 않는다. */
+    val retryable: Boolean = false,
 )
 
 /**
@@ -33,11 +41,16 @@ class AssistantMutator(private val vm: CalendarViewModel, private val describe: 
     private fun isLocalCalendar(calendarId: Long?): Boolean =
         vm.calendars.value.firstOrNull { it.id == calendarId }?.accountType == CalendarContract.ACCOUNT_TYPE_LOCAL
 
-    suspend fun execute(item: ProposalItem, calendarId: Long?, scope: AiScope?): MutationOutcome = when (item.kind) {
-        ProposalKind.CREATE -> create(item, calendarId)
-        ProposalKind.UPDATE -> update(item, scope)
-        ProposalKind.DELETE -> delete(item, scope)
-    }
+    suspend fun execute(item: ProposalItem, calendarId: Long?, scope: AiScope?): MutationOutcome =
+        if (item.target?.sourceKind == EventSourceKind.NOTION) {
+            notion(item)
+        } else {
+            when (item.kind) {
+                ProposalKind.CREATE -> create(item, calendarId)
+                ProposalKind.UPDATE -> update(item, scope)
+                ProposalKind.DELETE -> delete(item, scope)
+            }
+        }
 
     private suspend fun create(item: ProposalItem, calendarId: Long?): MutationOutcome {
         val cal = calendarId ?: return fail("추가할 캘린더가 선택되지 않았습니다")
@@ -124,6 +137,29 @@ class AssistantMutator(private val vm: CalendarViewModel, private val describe: 
                 if (!ok) fail("이후 회차를 삭제하지 못했습니다") else MutationOutcome(true, "이 회차부터 삭제했습니다: '${target.title}'", summary)
             }
             else -> fail("반복 일정의 적용 범위가 선택되지 않았습니다")
+        }
+    }
+
+    /** Notion 항목의 날짜·상태 변경. 재조회·충돌 검사·되돌리기 기록은 [com.jongsun.runcal.data.notion.NotionWriteService]가 한다. */
+    private suspend fun notion(item: ProposalItem): MutationOutcome {
+        val target = item.target ?: return fail("대상 항목이 없습니다")
+        if (item.kind != ProposalKind.UPDATE) return fail("Notion 항목은 날짜·상태만 바꿀 수 있습니다")
+        val dateChanged = item.startMillis != target.begin || item.endMillis != target.end
+        val change = NotionChange(
+            date = if (dateChanged) NotionWriteService.specOf(target.allDay, item.startMillis, item.endMillis, zone) else null,
+            status = item.newStatus,
+        )
+        val summary = "Notion 수정: '${target.title}' · " + item.changeLines.joinToString(" / ")
+        return when (val result = vm.applyNotionChange(target, change)) {
+            is NotionWriteResult.Ok -> MutationOutcome(
+                ok = true,
+                message = "Notion에 반영했습니다: '${target.title}'",
+                logSummary = summary,
+                undo = { vm.undoNotionChange(result.undoId) is NotionWriteResult.Ok },
+                undoIds = listOf(result.undoId),
+            )
+            is NotionWriteResult.Conflict -> MutationOutcome(false, result.message, "충돌: '${target.title}' · ${result.message}")
+            is NotionWriteResult.Failed -> MutationOutcome(false, result.message, "실패: '${target.title}' · ${result.message}", retryable = true)
         }
     }
 

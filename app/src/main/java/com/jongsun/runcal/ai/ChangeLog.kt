@@ -7,7 +7,13 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 @Serializable
-data class ChangeEntry(val atMillis: Long, val kind: String, val summary: String)
+data class ChangeEntry(
+    val atMillis: Long,
+    val kind: String,
+    val summary: String,
+    /** Notion 변경의 되돌리기 기록 id(24시간 동안 기록 화면에서 되돌릴 수 있음). */
+    val undoIds: List<String> = emptyList(),
+)
 
 /**
  * AI 명령으로 실행된(또는 취소·되돌려진) 변경 기록. 앱 전용 저장소(filesDir/assistant/)에만 쓰고,
@@ -21,10 +27,10 @@ object ChangeLog {
     private fun file(context: Context): File = File(context.filesDir, "assistant/changelog.jsonl").also { it.parentFile?.mkdirs() }
 
     @Synchronized
-    fun append(context: Context, kind: String, summary: String) {
+    fun append(context: Context, kind: String, summary: String, undoIds: List<String> = emptyList()) {
         val f = file(context)
         val lines = if (f.exists()) f.readLines().takeLast(MAX_KEEP - 1) else emptyList()
-        val entry = json.encodeToString(ChangeEntry(System.currentTimeMillis(), kind, summary))
+        val entry = json.encodeToString(ChangeEntry(System.currentTimeMillis(), kind, summary, undoIds))
         f.writeText((lines + entry).joinToString("\n") + "\n")
     }
 

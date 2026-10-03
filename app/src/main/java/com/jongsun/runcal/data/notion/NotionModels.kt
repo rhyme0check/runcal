@@ -19,7 +19,37 @@ data class NotionPropertySchema(
     val id: String,
     val name: String,
     val type: String,
+    // 상태/선택 속성의 옵션 목록(P8: 앱에서 상태를 바꿀 때 고를 수 있는 값). 다른 타입이면 null.
+    val status: NotionOptionList? = null,
+    val select: NotionOptionList? = null,
+) {
+    val optionNames: List<String> get() = (status ?: select)?.options?.map { it.name }.orEmpty()
+}
+
+@Serializable
+data class NotionOptionList(val options: List<NotionOption> = emptyList())
+
+@Serializable
+data class NotionOption(val name: String)
+
+/** [com.jongsun.runcal.data.room.NotionDatabaseEntity.schemaJson]에 저장하는 스키마 요약. */
+@Serializable
+data class NotionSchemaSummary(
+    /** 매핑된 상태 속성의 옵션 이름들(Notion 순서 그대로). */
+    val statusOptions: List<String> = emptyList(),
+    /** 매핑된 상태 속성의 타입("status" | "select"). */
+    val statusType: String? = null,
+    /** 매핑된 날짜 속성 이름이 현재 스키마에서 date 타입인지. */
+    val dateIsDate: Boolean = true,
 )
+
+private val summaryJson = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+
+fun parseSchemaSummary(raw: String?): NotionSchemaSummary =
+    raw?.takeIf { it.startsWith("{") }?.let { runCatching { summaryJson.decodeFromString(NotionSchemaSummary.serializer(), it) }.getOrNull() }
+        ?: NotionSchemaSummary()
+
+fun NotionSchemaSummary.encode(): String = summaryJson.encodeToString(NotionSchemaSummary.serializer(), this)
 
 @Serializable
 data class NotionRichText(

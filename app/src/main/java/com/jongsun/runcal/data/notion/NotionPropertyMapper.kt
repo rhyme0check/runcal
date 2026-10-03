@@ -1,5 +1,7 @@
 package com.jongsun.runcal.data.notion
 
+import com.jongsun.runcal.data.room.NotionDatabaseEntity
+import com.jongsun.runcal.data.room.NotionEventEntity
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -45,6 +47,25 @@ object NotionPropertyMapper {
         }
     }
 
+    /** 페이지 하나를 캐시 행으로 바꾼다(동기화와 앱에서의 수정 직후 갱신이 같은 규칙을 쓴다). 날짜가 비어 있으면 null. */
+    fun toEntity(registration: NotionDatabaseEntity, page: NotionPage, zone: ZoneId, nowMillis: Long): NotionEventEntity? {
+        val dateRange = extractDateRange(page.properties, registration.dateProperty) ?: return null
+        val (startMillis, endMillis, allDay) = toEpochMillisRange(dateRange.first, dateRange.second, zone)
+        return NotionEventEntity(
+            registrationId = registration.id,
+            notionPageId = page.id,
+            title = extractTitle(page.properties, registration.titleProperty),
+            subtitle = extractDisplayText(page.properties, registration.subtitleProperty),
+            statusRaw = extractDisplayText(page.properties, registration.statusProperty),
+            startMillis = startMillis,
+            endMillis = endMillis,
+            allDay = allDay,
+            notionUrl = page.url,
+            lastEditedTimeIso = page.lastEditedTime,
+            fetchedAtMillis = nowMillis,
+        )
+    }
+
     private val ISO_DATE = DateTimeFormatter.ISO_LOCAL_DATE
     private val ISO_DATE_TIME_OFFSET = DateTimeFormatter.ISO_OFFSET_DATE_TIME
 
@@ -58,9 +79,11 @@ object NotionPropertyMapper {
         return if (allDay) {
             val startDate = LocalDate.parse(start, ISO_DATE)
             val endDate = end?.let { LocalDate.parse(it, ISO_DATE) } ?: startDate
-            val startMillis = startDate.atStartOfDay(zone).toInstant().toEpochMilli()
+            // 종일은 캘린더 일정과 같은 규칙(UTC 자정)으로 맞춘다 — 화면·위젯의 dateRange()가 종일을 UTC로 읽으므로
+            // 로컬 자정으로 두면 한국 시간에서 하루 앞 날짜에 표시된다.
+            val startMillis = startDate.atStartOfDay(java.time.ZoneOffset.UTC).toInstant().toEpochMilli()
             // Notion의 date.end는 exclusive가 아니라 "마지막 날"을 가리키므로 +1일 해서 exclusive로 맞춘다.
-            val endMillis = endDate.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+            val endMillis = endDate.plusDays(1).atStartOfDay(java.time.ZoneOffset.UTC).toInstant().toEpochMilli()
             Triple(startMillis, endMillis, true)
         } else {
             val startInstant = java.time.OffsetDateTime.parse(start, ISO_DATE_TIME_OFFSET).toInstant()

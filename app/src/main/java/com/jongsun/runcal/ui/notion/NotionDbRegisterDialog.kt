@@ -274,6 +274,7 @@ private fun NotionDbRegisterContent(
                                     lastSyncStatus = "PENDING",
                                     lastSyncError = null,
                                     createdAtMillis = existing?.createdAtMillis ?: System.currentTimeMillis(),
+                                    writeEnabled = existing?.writeEnabled ?: false,
                                 )
                                 val result = viewModel.registerNotionDatabase(entity)
                                 saving = false

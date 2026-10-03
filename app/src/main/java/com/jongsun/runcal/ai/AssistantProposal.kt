@@ -47,6 +47,8 @@ data class ProposalItem(
     val scope: AiScope?,
     /** 수정에서 바뀌는 항목을 사람이 읽을 문장으로(변경 전 → 후). 앱이 실제 값으로 만든다. */
     val changeLines: List<String> = emptyList(),
+    /** Notion 상태 변경(setNotionStatus). null이면 상태는 그대로. */
+    val newStatus: String? = null,
 )
 
 /** 쓰기 호출 하나를 검증해 만든 결과. 제안이거나, 모델에게 되돌릴 오류/사용자에게 보일 안내. */
@@ -73,6 +75,7 @@ class ProposalBuilder(private val data: AssistantDataSource, private val labels:
         "createEvent" -> create(callKey, args)
         "updateEvent" -> update(callKey, args)
         "deleteEvent" -> delete(callKey, args)
+        "setNotionStatus" -> setNotionStatus(callKey, args)
         else -> ProposalOutcome.ModelError(callKey, "알 수 없는 함수입니다: $name")
     }
 
@@ -104,7 +107,7 @@ class ProposalBuilder(private val data: AssistantDataSource, private val labels:
 
     private fun update(callKey: String, args: JsonObject): ProposalOutcome {
         val target = resolveTarget(callKey, args) ?: return targetProblem
-        blocked(callKey, target)?.let { return it }
+        blocked(callKey, target, forNotionWrite = true)?.let { return it }
         val recurring = !target.rrule.isNullOrBlank()
         val scope = parseScope(args.str("scope"))
 
@@ -112,6 +115,9 @@ class ProposalBuilder(private val data: AssistantDataSource, private val labels:
         val newStartText = args.str("newStart")
         val newEndText = args.str("newEnd")
         val newReminders = (args["reminderMinutes"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.intOrNull }?.distinct()?.take(5)
+        if (target.sourceKind == EventSourceKind.NOTION && (newTitle != null || newReminders != null)) {
+            return ProposalOutcome.ModelError(callKey, "Notion 항목은 날짜(newStart/newEnd)와 상태(setNotionStatus)만 바꿀 수 있습니다")
+        }
         if (newTitle == null && newStartText == null && newEndText == null && newReminders == null) {
             return ProposalOutcome.ModelError(callKey, "바꿀 항목(newTitle/newStart/newEnd/reminderMinutes)이 하나도 없습니다")
         }
@@ -157,6 +163,31 @@ class ProposalBuilder(private val data: AssistantDataSource, private val labels:
         )
     }
 
+    private fun setNotionStatus(callKey: String, args: JsonObject): ProposalOutcome {
+        val target = resolveTarget(callKey, args) ?: return targetProblem
+        if (target.sourceKind != EventSourceKind.NOTION) {
+            return ProposalOutcome.ModelError(callKey, "setNotionStatus는 Notion 항목에만 쓸 수 있습니다. 캘린더 일정은 updateEvent를 쓰세요")
+        }
+        blocked(callKey, target, forNotionWrite = true)?.let { return it }
+        val db = data.notionDatabases().firstOrNull { it.id == target.notionDatabaseId }
+        if (db?.statusProperty == null) return ProposalOutcome.Blocked(callKey, "'${target.title}'이(가) 속한 Notion DB에는 상태 속성이 매핑되어 있지 않습니다.")
+        val status = args.str("status") ?: return ProposalOutcome.ModelError(callKey, "status가 필요합니다")
+        val options = com.jongsun.runcal.data.notion.parseSchemaSummary(db.schemaJson).statusOptions
+        if (options.isNotEmpty() && status !in options) {
+            return ProposalOutcome.ModelError(callKey, "status는 다음 중 하나여야 합니다: ${options.joinToString(", ")}")
+        }
+        if (status == target.notionStatus) return ProposalOutcome.ModelError(callKey, "이미 그 상태입니다")
+        return ProposalOutcome.Ok(
+            ProposalItem(
+                callKey = callKey, kind = ProposalKind.UPDATE, target = target, title = target.title, allDay = target.allDay,
+                startMillis = target.begin, endMillis = target.end, reminderMinutes = null, rrule = null, recurrenceLabel = null,
+                calendarId = null, scope = null,
+                changeLines = listOf("${db.statusProperty}: '${target.notionStatus ?: "없음"}' → '$status'"),
+                newStatus = status,
+            ),
+        )
+    }
+
     private var targetProblem: ProposalOutcome = ProposalOutcome.ModelError("", "")
 
     private fun resolveTarget(callKey: String, args: JsonObject): EventItem? {
@@ -170,9 +201,14 @@ class ProposalBuilder(private val data: AssistantDataSource, private val labels:
     }
 
     /** Notion 항목·읽기 전용 캘린더는 수정/삭제할 수 없다 — 사용자에게 앱이 직접 안내한다(실제 제목은 화면에만 나온다). */
-    private fun blocked(callKey: String, target: EventItem): ProposalOutcome.Blocked? {
+    private fun blocked(callKey: String, target: EventItem, forNotionWrite: Boolean = false): ProposalOutcome.Blocked? {
         if (target.sourceKind == EventSourceKind.NOTION) {
-            return ProposalOutcome.Blocked(callKey, "'${target.title}'은(는) Notion 항목이라 읽기만 가능합니다. 수정·삭제할 수 없어요.")
+            if (!forNotionWrite) return ProposalOutcome.Blocked(callKey, "'${target.title}'은(는) Notion 항목이라 삭제할 수 없어요. 날짜·상태만 바꿀 수 있습니다.")
+            val db = data.notionDatabases().firstOrNull { it.id == target.notionDatabaseId }
+            if (db == null || !db.writeEnabled) {
+                return ProposalOutcome.Blocked(callKey, "'${target.title}'이(가) 속한 Notion DB는 앱에서 수정이 꺼져 있어요(설정 > Notion 연동에서 켤 수 있습니다).")
+            }
+            return null
         }
         val calendar = data.calendars().firstOrNull { it.id == target.calendarId }
         if (calendar != null && !calendar.isWritable) {

@@ -17,6 +17,9 @@ private const val MAX_ROUNDS = 5
 private const val MAX_HISTORY = 40
 private const val MAX_BATCH = 10
 
+/** Notion 날짜·상태 변경은 한 번에 더 많이(러닝 계획 일괄 이동 등) 허용한다. 10건을 넘으면 카드에서 경고한다. */
+private const val MAX_NOTION_BATCH = 20
+
 /**
  * 한 번의 명령에 대한 결과. [events]는 앱이 실제 제목으로 그릴 일정들(모델에는 제목이 나가지 않는다).
  * [proposals]가 있으면 아직 아무것도 실행되지 않았고 사용자의 확인을 기다리는 상태다. [notices]는 앱이 직접 만든 안내문.
@@ -111,6 +114,7 @@ class AssistantEngine(private val client: GeminiClient, private val data: Assist
                 var modelErrors = 0
                 var reads = 0
                 var batchCount = 0
+                var notionBatchCount = 0
                 var choice: ChoiceRequest? = null
                 response.calls.forEach { call ->
                     if (call.name == AssistantToolSpecs.CHOOSE) {
@@ -125,8 +129,11 @@ class AssistantEngine(private val client: GeminiClient, private val data: Assist
                         }
                     } else if (call.name in AssistantToolSpecs.writeNames) {
                         val key = "c${++callSeq}"
-                        if (++batchCount > MAX_BATCH) {
-                            parts += responsePart(call, error("한 번에 최대 ${MAX_BATCH}건까지만 제안할 수 있습니다. 범위를 좁혀 다시 요청하게 하세요."))
+                        val isNotionTarget = labels.event(call.args["eventRef"].asStringOrNull().orEmpty())?.sourceKind == com.jongsun.runcal.data.source.EventSourceKind.NOTION
+                        val overLimit = if (isNotionTarget) ++notionBatchCount > MAX_NOTION_BATCH else ++batchCount > MAX_BATCH
+                        if (overLimit) {
+                            val limit = if (isNotionTarget) MAX_NOTION_BATCH else MAX_BATCH
+                            parts += responsePart(call, error("한 번에 최대 ${limit}건까지만 제안할 수 있습니다. 범위를 좁혀 다시 요청하게 하세요."))
                             modelErrors++
                             return@forEach
                         }
@@ -262,7 +269,7 @@ class AssistantEngine(private val client: GeminiClient, private val data: Assist
             - 일정 옮기기는 updateEvent의 newStart(필요하면 newEnd)로 표현하세요. 시간을 말하지 않고 날짜만 바꾸라고 하면 기존 시각(조회 결과의 start/end)을 유지하세요.
             - 반복 일정의 적용 범위(이번만/이후 전체/전체)를 사용자가 말하지 않았으면 scope를 생략하세요(앱이 묻습니다).
             - "어제 만든 거"처럼 일정이 만들어진 시점을 기준으로 한 요청은 알 수 없습니다(달력에 생성 시각이 없음). 그렇게 안내하고, 날짜나 키워드를 되물으세요.
-            - Notion 항목(조회 결과 readOnly=true)은 수정·삭제할 수 없습니다.
+            - Notion 항목(source=notion)은 삭제할 수 없습니다. readOnly=false인 Notion 항목만 날짜(updateEvent의 newStart/newEnd)와 상태(setNotionStatus, notionStatusOptions의 값)를 바꿀 수 있고, 한 번에 최대 ${MAX_NOTION_BATCH}건까지 제안할 수 있습니다. readOnly=true면 바꿀 수 없다고 안내하세요.
             - 답변은 한국어로 간결하게.
         """.trimIndent()
     }

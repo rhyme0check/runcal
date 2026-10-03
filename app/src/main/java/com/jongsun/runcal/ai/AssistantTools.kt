@@ -28,6 +28,9 @@ interface AssistantDataSource {
 
     /** 새 일정에 기본으로 깔아줄 알림(분). 앱 설정의 "새 일정 기본 알림". */
     fun defaultReminderMinutes(): List<Int>
+
+    /** 등록된 Notion DB(쓰기 허용 여부·상태 옵션 확인용). */
+    fun notionDatabases(): List<com.jongsun.runcal.data.room.NotionDatabaseEntity> = emptyList()
 }
 
 /**
@@ -166,7 +169,7 @@ object AssistantToolSpecs {
                     add(
                         buildJsonObject {
                             put("name", "updateEvent")
-                            put("description", "기존 일정을 수정(제목·일시·알림)하는 제안. eventRef는 조회 결과의 ref. 옮기기는 newStart/newEnd로 표현한다. 실행 전에 앱이 확인을 받는다.")
+                            put("description", "기존 일정을 수정(제목·일시·알림)하는 제안. eventRef는 조회 결과의 ref. 옮기기는 newStart/newEnd로 표현한다. Notion 항목(source=notion, readOnly=false)은 newStart/newEnd만 쓸 수 있다. 실행 전에 앱이 확인을 받는다.")
                             putJsonObject("parameters") {
                                 put("type", "OBJECT")
                                 putJsonObject("properties") {
@@ -184,6 +187,20 @@ object AssistantToolSpecs {
                                     }
                                 }
                                 putJsonArray("required") { add(kotlinx.serialization.json.JsonPrimitive("eventRef")) }
+                            }
+                        },
+                    )
+                    add(
+                        buildJsonObject {
+                            put("name", "setNotionStatus")
+                            put("description", "Notion 항목(source=notion, readOnly=false)의 상태 값을 바꾸는 제안. status는 조회 결과 notionStatusOptions에 있는 값 중 하나. 실행 전에 앱이 확인을 받는다.")
+                            putJsonObject("parameters") {
+                                put("type", "OBJECT")
+                                putJsonObject("properties") {
+                                    put("eventRef", stringProp("조회 결과의 ref(E1…)"))
+                                    put("status", stringProp("바꿀 상태 값(옵션 이름 그대로)"))
+                                }
+                                putJsonArray("required") { add(kotlinx.serialization.json.JsonPrimitive("eventRef")); add(kotlinx.serialization.json.JsonPrimitive("status")) }
                             }
                         },
                     )
@@ -212,7 +229,7 @@ object AssistantToolSpecs {
     val tools: JsonArray get() = readTools
 
     /** 쓰기 제안으로 취급하는 함수 이름들. */
-    val writeNames = setOf("createEvent", "updateEvent", "deleteEvent")
+    val writeNames = setOf("createEvent", "updateEvent", "deleteEvent", "setNotionStatus")
 
     const val CHOOSE = "askUserToChoose"
 }
@@ -291,6 +308,9 @@ class ReadToolExecutor(private val data: AssistantDataSource, private val labels
         val truncated = events.size > MAX_RESULTS
         val shown = events.take(MAX_RESULTS)
         lastShown = shown
+        // 앱에서 수정을 허용한 Notion DB만 쓰기 대상이다. 그 DB의 항목에는 상태 값과 옵션 목록(제목 아님)을 함께 보낸다.
+        val writableNotion = data.notionDatabases().filter { it.writeEnabled }.associateBy { it.id }
+        val statusOptionsByLabel = LinkedHashMap<String, List<String>>()
 
         return buildJsonObject {
             put("count", events.size)
@@ -311,9 +331,20 @@ class ReadToolExecutor(private val data: AssistantDataSource, private val labels
                             put("calendar", labels.calendarLabel(e))
                             put("source", if (e.sourceKind == EventSourceKind.NOTION) "notion" else "calendar")
                             put("recurring", !e.rrule.isNullOrBlank())
-                            put("readOnly", e.sourceKind == EventSourceKind.NOTION)
+                            val notionDb = if (e.sourceKind == EventSourceKind.NOTION) writableNotion[e.notionDatabaseId] else null
+                            put("readOnly", e.sourceKind == EventSourceKind.NOTION && notionDb == null)
+                            if (notionDb != null && notionDb.statusProperty != null) {
+                                e.notionStatus?.let { put("status", it) }
+                                val options = com.jongsun.runcal.data.notion.parseSchemaSummary(notionDb.schemaJson).statusOptions
+                                if (options.isNotEmpty()) statusOptionsByLabel[labels.calendarLabel(e)] = options
+                            }
                         },
                     )
+                }
+            }
+            if (statusOptionsByLabel.isNotEmpty()) {
+                putJsonObject("notionStatusOptions") {
+                    statusOptionsByLabel.forEach { (label, options) -> putJsonArray(label) { options.forEach { add(kotlinx.serialization.json.JsonPrimitive(it)) } } }
                 }
             }
             if (truncated) put("note", "결과가 많아 처음 ${MAX_RESULTS}건만 보냈습니다. 기간이나 키워드를 좁히세요.")

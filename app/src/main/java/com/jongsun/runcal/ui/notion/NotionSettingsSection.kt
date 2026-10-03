@@ -22,6 +22,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -69,7 +70,8 @@ fun NotionSettingsSection(viewModel: CalendarViewModel, modifier: Modifier = Mod
             }
         }
         Text(
-            text = "읽기 전용 연동입니다. Notion에 다시 쓰지 않습니다.",
+            text = "기본은 읽기 전용입니다. DB별로 '앱에서 수정'을 켜면 그 DB 항목의 날짜·상태만 바꿀 수 있습니다(제목·본문 수정, 생성·삭제는 하지 않음). " +
+                "켠 DB의 상태 값·옵션 이름은 AI 명령 때 Google로 함께 전송됩니다.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -86,6 +88,7 @@ fun NotionSettingsSection(viewModel: CalendarViewModel, modifier: Modifier = Mod
                     database = database,
                     onClick = { editingDatabase = database },
                     onDelete = { deletingDatabase = database },
+                    onWriteEnabledChange = { enabled -> scope.launch { viewModel.setNotionWriteEnabled(database.id, enabled) } },
                 )
             }
         }
@@ -148,7 +151,12 @@ fun NotionSettingsSection(viewModel: CalendarViewModel, modifier: Modifier = Mod
 }
 
 @Composable
-private fun NotionDatabaseRow(database: NotionDatabaseEntity, onClick: () -> Unit, onDelete: () -> Unit) {
+private fun NotionDatabaseRow(
+    database: NotionDatabaseEntity,
+    onClick: () -> Unit,
+    onDelete: () -> Unit,
+    onWriteEnabledChange: (Boolean) -> Unit,
+) {
     Row(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -166,6 +174,10 @@ private fun NotionDatabaseRow(database: NotionDatabaseEntity, onClick: () -> Uni
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+        }
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Switch(checked = database.writeEnabled, onCheckedChange = onWriteEnabledChange)
+            Text("앱에서 수정", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         IconButton(onClick = onDelete) {
             Icon(Icons.Default.Delete, contentDescription = "삭제")
