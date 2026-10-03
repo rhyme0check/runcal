@@ -58,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jongsun.runcal.data.distinctName
 import com.jongsun.runcal.data.AccountEventColors
 import com.jongsun.runcal.data.EventStyleChoice
 import com.jongsun.runcal.data.hasRestrictedEventColors
@@ -783,7 +784,7 @@ private fun EventEditContent(
                                     modifier = Modifier.size(10.dp).background(Color(calendar.color), CircleShape),
                                 )
                             },
-                            label = { Text(calendar.displayName) },
+                            label = { Text(calendar.distinctName(writableCalendars)) },
                         )
                     }
                 }

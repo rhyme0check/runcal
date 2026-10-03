@@ -28,6 +28,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jongsun.runcal.ai.describeEventRange
+import com.jongsun.runcal.data.distinctName
 import com.jongsun.runcal.data.isRunCalLocal
 import com.jongsun.runcal.data.share.IcsEvent
 import com.jongsun.runcal.ui.calendar.CalendarViewModel
@@ -79,7 +80,7 @@ fun ShareIcsDialog(viewModel: CalendarViewModel, events: List<IcsEvent>, onDismi
                         FilterChip(
                             selected = calendarId == cal.id,
                             onClick = { if (!saving) calendarId = cal.id },
-                            label = { Text(cal.displayName, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            label = { Text(cal.distinctName(writable), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         )
                     }
                 }

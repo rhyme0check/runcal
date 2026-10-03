@@ -39,6 +39,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jongsun.runcal.data.distinctName
 import com.jongsun.runcal.data.AccountEventColors
 import com.jongsun.runcal.data.CalendarInfo
 import com.jongsun.runcal.data.hasRestrictedEventColors
@@ -144,12 +145,12 @@ private fun EventTypeEditDialog(
                 OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("이름") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 Text("기본 캘린더", style = MaterialTheme.typography.labelMedium)
                 Box {
-                    OutlinedButton(onClick = { showCalendarMenu = true }) { Text(calendar?.displayName ?: "지정 안 함") }
+                    OutlinedButton(onClick = { showCalendarMenu = true }) { Text(calendar?.distinctName(calendars) ?: "지정 안 함") }
                     DropdownMenu(expanded = showCalendarMenu, onDismissRequest = { showCalendarMenu = false }) {
                         DropdownMenuItem(text = { Text("지정 안 함") }, onClick = { calendarId = null; showCalendarMenu = false })
                         calendars.forEach { cal ->
                             DropdownMenuItem(
-                                text = { Text(cal.displayName) },
+                                text = { Text(cal.distinctName(calendars)) },
                                 onClick = {
                                     calendarId = cal.id
                                     showCalendarMenu = false

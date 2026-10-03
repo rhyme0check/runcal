@@ -63,6 +63,7 @@ import com.jongsun.runcal.ai.ProposalItem
 import com.jongsun.runcal.ai.ProposalKind
 import com.jongsun.runcal.ai.describeEventRange
 import com.jongsun.runcal.ai.describeReminders
+import com.jongsun.runcal.data.distinctName
 import com.jongsun.runcal.data.CalendarInfo
 import com.jongsun.runcal.data.EventItem
 import com.jongsun.runcal.data.dateRange
@@ -452,7 +453,7 @@ private fun ItemBlock(
                             FilterChip(
                                 selected = card.calendars[item.callKey] == cal.id,
                                 onClick = { if (pending) onCalendar(item.callKey, cal.id) },
-                                label = { Text(cal.displayName, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                label = { Text(cal.distinctName(writable), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                                 enabled = pending,
                             )
                         }

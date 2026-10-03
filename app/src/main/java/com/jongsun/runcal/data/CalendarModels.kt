@@ -23,6 +23,23 @@ data class CalendarInfo(
 )
 
 /**
+ * 이름 아래에 작게 보여줄 계정 표시. 기기마다 같은 이름(예: "대한민국의 휴일")의 캘린더가 여러 계정에 있을 수 있어
+ * 이름만으로는 구분이 안 된다. 계정 이름이 캘린더 이름과 같으면 굳이 반복하지 않는다.
+ */
+fun CalendarInfo.accountLabel(): String = when {
+    accountType == android.provider.CalendarContract.ACCOUNT_TYPE_LOCAL && accountName == CalendarRepository.LOCAL_ACCOUNT_NAME -> "RunCal(이 기기)"
+    accountName.isBlank() || accountName == displayName -> ""
+    else -> accountName
+}
+
+/** 칩·메뉴처럼 한 줄만 쓸 수 있는 곳의 이름. 같은 이름이 [all] 안에 또 있으면 계정을 괄호로 붙인다. */
+fun CalendarInfo.distinctName(all: List<CalendarInfo>): String {
+    val duplicated = all.count { it.displayName == displayName } > 1
+    val account = accountLabel()
+    return if (duplicated && account.isNotEmpty()) "$displayName ($account)" else displayName
+}
+
+/**
  * 새 프리셋을 만들 때 기본으로 체크해 둘 캘린더: RunCal 로컬 캘린더, 구글 계정의 메인 캘린더, 한국 공휴일 캘린더.
  * (공유받은 캘린더·다른 나라 공휴일 등은 기본 해제 — 매번 수동으로 빼는 수고를 없앤다.) 하나도 못 찾으면 전체.
  */

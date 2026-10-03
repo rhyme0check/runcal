@@ -6,6 +6,9 @@ import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -58,6 +61,7 @@ import com.jongsun.runcal.R
 import com.jongsun.runcal.data.APP_PRESET_COLOR_PALETTE
 import com.jongsun.runcal.data.AppPreset
 import com.jongsun.runcal.data.CalendarInfo
+import com.jongsun.runcal.data.accountLabel
 import com.jongsun.runcal.data.defaultPresetCalendarIds
 import com.jongsun.runcal.data.MAX_APP_FONT_SCALE_STEP
 import com.jongsun.runcal.data.MIN_APP_FONT_SCALE_STEP
@@ -438,7 +442,8 @@ private fun PresetEditDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (existing == null) "프리셋 추가" else "프리셋 수정") },
         text = {
-            Column {
+            // 캘린더가 많은 기기(실기기 11개+)에서는 목록이 다이얼로그 높이를 넘으므로 반드시 스크롤한다.
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
@@ -448,7 +453,10 @@ private fun PresetEditDialog(
                 )
                 Spacer(modifier = Modifier.height(12.dp))
                 Text(text = "색상", style = MaterialTheme.typography.labelMedium)
-                Row(modifier = Modifier.padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.padding(vertical = 4.dp).horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
                     APP_PRESET_COLOR_PALETTE.forEach { colorOption ->
                         Box(
                             modifier = Modifier
@@ -466,18 +474,35 @@ private fun PresetEditDialog(
                 Spacer(modifier = Modifier.height(12.dp))
                 Text(text = "포함할 캘린더", style = MaterialTheme.typography.labelMedium)
                 calendars.forEach { calendar ->
+                    val checked = selectedIds.contains(calendar.id)
+                    // 줄 전체를 눌러도 체크되게 한다(체크박스만 누르기 어려움). 계정 이름을 함께 보여 같은 이름의 캘린더를 구분한다.
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { selectedIds = if (checked) selectedIds - calendar.id else selectedIds + calendar.id },
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Checkbox(
-                            checked = selectedIds.contains(calendar.id),
-                            onCheckedChange = { checked ->
-                                selectedIds = if (checked) selectedIds + calendar.id else selectedIds - calendar.id
+                            checked = checked,
+                            onCheckedChange = { now ->
+                                selectedIds = if (now) selectedIds + calendar.id else selectedIds - calendar.id
                             },
                         )
-                        Text(text = calendar.displayName, style = MaterialTheme.typography.bodyMedium)
+                        Box(modifier = Modifier.size(10.dp).background(Color(calendar.color), CircleShape))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(text = calendar.displayName, style = MaterialTheme.typography.bodyMedium)
+                            val account = calendar.accountLabel()
+                            if (account.isNotEmpty()) {
+                                Text(
+                                    text = account,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
                     }
                 }
                 // 등록된 Notion DB가 있을 때만 보여준다.
