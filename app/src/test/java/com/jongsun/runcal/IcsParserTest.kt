@@ -57,6 +57,33 @@ class IcsParserTest {
         assertEquals(45 * 60_000L, meeting.endMillis - meeting.startMillis)
     }
 
+    /** claude-skill/runcal/SKILL.md가 안내하는 .ics 형식이 그대로 읽히는지. */
+    @Test
+    fun parsesSkillTemplate() {
+        val ics = """
+            BEGIN:VCALENDAR
+            VERSION:2.0
+            PRODID:-//RunCal skill//KO
+            BEGIN:VEVENT
+            UID:abc@runcal
+            SUMMARY:병원
+            DTSTART;TZID=Asia/Seoul:20261007T070000
+            DTEND;TZID=Asia/Seoul:20261007T080000
+            END:VEVENT
+            BEGIN:VEVENT
+            UID:def@runcal
+            SUMMARY:하프 마라톤
+            DTSTART;VALUE=DATE:20261018
+            DTEND;VALUE=DATE:20261019
+            END:VEVENT
+            END:VCALENDAR
+        """.trimIndent()
+        val events = IcsParser.parse(ics, seoul)
+        assertEquals(listOf("병원", "하프 마라톤"), events.map { it.title })
+        assertEquals(LocalDateTime.of(2026, 10, 7, 7, 0).atZone(seoul).toInstant().toEpochMilli(), events[0].startMillis)
+        assertTrue(events[1].allDay)
+    }
+
     @Test
     fun unfoldsContinuationLines() {
         val folded = "BEGIN:VEVENT\r\nSUMMARY:긴 제목\r\n  이어짐\r\nDTSTART:20261005T000000Z\r\nEND:VEVENT\r\n"
