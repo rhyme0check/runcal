@@ -16,3 +16,7 @@ local.properties
 
 claude-skill/*.zip
 claude-skill/runcal-skill/
+
+# 서명 키는 저장소에 넣지 않는다
+*.jks
+*.keystore
