@@ -57,6 +57,8 @@ data class AppSettings(
     // 앱·위젯 프리셋 연동. 켜면 앱에서 고른 프리셋을 (고정 안 한) 위젯이 따라가고, 위젯에서 고르거나 위젯을
     // 눌러 앱에 들어오면 앱도 그 프리셋으로 바뀐다. 끄면 정의(목록)만 공유하고 선택은 각자 한다.
     val presetLinkEnabled: Boolean = true,
+    // 목록에서 숨긴 캘린더(설정 > 표시할 캘린더 > 목록 관리). 앱·위젯·프리셋·선택지 어디에도 나오지 않고 일정도 읽지 않는다.
+    val hiddenCalendarIds: Set<Long> = emptySet(),
 )
 
 class AppSettingsRepository(private val context: Context) {
@@ -78,6 +80,7 @@ class AppSettingsRepository(private val context: Context) {
         // 구분하기 위한 별도 플래그 — IntPreferencesKey는 null을 직접 저장할 수 없다.
         val DEFAULT_REMINDER_NONE = booleanPreferencesKey("default_reminder_none")
         val PRESET_LINK_ENABLED = booleanPreferencesKey("preset_link_enabled")
+        val HIDDEN_CALENDAR_IDS = stringSetPreferencesKey("hidden_calendar_ids")
     }
 
     val settings: Flow<AppSettings> = context.appSettingsDataStore.data.map { prefs ->
@@ -103,6 +106,7 @@ class AppSettingsRepository(private val context: Context) {
                 prefs[Keys.DEFAULT_REMINDER_MINUTES] ?: DEFAULT_REMINDER_MINUTES
             },
             presetLinkEnabled = prefs[Keys.PRESET_LINK_ENABLED] ?: true,
+            hiddenCalendarIds = prefs[Keys.HIDDEN_CALENDAR_IDS]?.mapNotNull { it.toLongOrNull() }?.toSet() ?: emptySet(),
         )
     }
 
@@ -152,6 +156,11 @@ class AppSettingsRepository(private val context: Context) {
             prefs[Keys.ACTIVE_PRESET_ID] = preset.id
         }
         SharedPresets.invalidate()
+    }
+
+    suspend fun setHiddenCalendarIds(ids: Set<Long>) {
+        context.appSettingsDataStore.edit { prefs -> prefs[Keys.HIDDEN_CALENDAR_IDS] = ids.map { it.toString() }.toSet() }
+        HiddenCalendars.invalidate()
     }
 
     suspend fun setPresetLinkEnabled(enabled: Boolean) {

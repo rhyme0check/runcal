@@ -106,16 +106,34 @@ fun SettingsScreen(viewModel: CalendarViewModel, assistantViewModel: AssistantVi
     var editingPreset by remember { mutableStateOf<AppPreset?>(null) }
     var showAddPresetDialog by remember { mutableStateOf(false) }
     var showExportDialog by remember { mutableStateOf(false) }
+    var showCalendarListManager by remember { mutableStateOf(false) }
+    val allCalendars by viewModel.allCalendars.collectAsStateWithLifecycle()
+    val hiddenCalendarIds by viewModel.hiddenCalendarIds.collectAsStateWithLifecycle()
+    if (showCalendarListManager) {
+        CalendarListManagerDialog(
+            calendars = allCalendars,
+            hiddenIds = hiddenCalendarIds,
+            onDismiss = { showCalendarListManager = false },
+            onSave = { hidden ->
+                scope.launch { viewModel.setHiddenCalendarIds(hidden) }
+                showCalendarListManager = false
+            },
+        )
+    }
 
     LazyColumn(modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
         item {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(text = "표시할 캘린더", style = MaterialTheme.typography.titleMedium)
+                TextButton(onClick = { showCalendarListManager = true }) { Text("목록 관리") }
+            }
             Text(
-                text = "표시할 캘린더",
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(top = 16.dp, bottom = 4.dp),
-            )
-            Text(
-                text = "지금 앱 화면에 보일 캘린더입니다. 프리셋을 고르면 이 선택이 프리셋 값으로 바뀝니다.",
+                text = "지금 앱 화면에 보일 캘린더입니다. 프리셋을 고르면 이 선택이 프리셋 값으로 바뀝니다." +
+                    if (hiddenCalendarIds.isNotEmpty()) " (숨긴 캘린더 ${hiddenCalendarIds.size}개)" else "",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -587,6 +605,63 @@ private fun PresetEditDialog(
                     )
                 },
             ) { Text("저장") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("취소") } },
+    )
+}
+
+/**
+ * 캘린더 목록 관리: 체크를 끈 캘린더는 앱 어디에도 나오지 않는다(표시할 캘린더·프리셋·일정 편집·위젯). 폰의 캘린더 자체나
+ * 그 계정의 동기화는 건드리지 않으므로, 다시 체크하면 그대로 돌아온다.
+ */
+@Composable
+private fun CalendarListManagerDialog(
+    calendars: List<CalendarInfo>,
+    hiddenIds: Set<Long>,
+    onDismiss: () -> Unit,
+    onSave: (Set<Long>) -> Unit,
+) {
+    var hidden by remember { mutableStateOf(hiddenIds) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("캘린더 목록 관리") },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                Text(
+                    "체크한 캘린더만 앱에 나옵니다. 끈 캘린더는 앱·위젯·프리셋에서 빠지고 일정도 읽지 않습니다(폰의 캘린더와 동기화는 그대로).",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                calendars.forEach { calendar ->
+                    val shown = calendar.id !in hidden
+                    Row(
+                        modifier = Modifier.fillMaxWidth().clickable { hidden = if (shown) hidden + calendar.id else hidden - calendar.id },
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Checkbox(checked = shown, onCheckedChange = { now -> hidden = if (now) hidden - calendar.id else hidden + calendar.id })
+                        Box(modifier = Modifier.size(10.dp).background(Color(calendar.color), CircleShape))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(calendar.displayName, style = MaterialTheme.typography.bodyMedium)
+                            val account = calendar.accountLabel()
+                            if (account.isNotEmpty()) {
+                                Text(
+                                    account,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            // 전부 숨기면 앱에 보일 게 없으니 하나는 남기게 한다.
+            TextButton(enabled = hidden.size < calendars.size, onClick = { onSave(hidden.filter { id -> calendars.any { it.id == id } }.toSet()) }) { Text("저장") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("취소") } },
     )

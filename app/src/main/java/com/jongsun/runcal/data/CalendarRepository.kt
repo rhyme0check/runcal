@@ -141,6 +141,8 @@ class CalendarRepository(private val context: Context) : EventSource {
             }
             val selectionArgs = calendarIds?.takeIf { it.isNotEmpty() }?.map { it.toString() }?.toTypedArray()
 
+            // 목록에서 숨긴 캘린더는 어떤 화면에서도 읽지 않는다(전체 보기·예전 프리셋 포함).
+            val hidden = HiddenCalendars.ids(context)
             val result = mutableListOf<EventItem>()
             resolver.query(uri, projection, selection, selectionArgs, "${CalendarContract.Instances.BEGIN} ASC")?.use { cursor ->
                 val eventIdIdx = cursor.getColumnIndexOrThrow(CalendarContract.Instances.EVENT_ID)
@@ -155,6 +157,7 @@ class CalendarRepository(private val context: Context) : EventSource {
                 val rruleIdx = cursor.getColumnIndexOrThrow(CalendarContract.Instances.RRULE)
                 val eventColorIdx = cursor.getColumnIndexOrThrow(CalendarContract.Instances.EVENT_COLOR)
                 while (cursor.moveToNext()) {
+                    if (hidden.isNotEmpty() && cursor.getLong(calendarIdIdx) in hidden) continue
                     result += EventItem(
                         id = cursor.getLong(eventIdIdx),
                         calendarId = cursor.getLong(calendarIdIdx),

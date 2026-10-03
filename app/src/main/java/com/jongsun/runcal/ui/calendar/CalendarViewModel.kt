@@ -13,6 +13,7 @@ import com.jongsun.runcal.data.room.EventTypeEntity
 import com.jongsun.runcal.data.room.NotionGroupAssignmentEntity
 import com.jongsun.runcal.data.EventGroupIndex
 import com.jongsun.runcal.data.EventGroups
+import com.jongsun.runcal.data.HiddenCalendars
 import com.jongsun.runcal.data.CalendarRepository
 import com.jongsun.runcal.data.backup.BackupPayload
 import com.jongsun.runcal.data.backup.BackupRestoreService
@@ -118,6 +119,13 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
     private val _calendars = MutableStateFlow<List<CalendarInfo>>(emptyList())
     val calendars: StateFlow<List<CalendarInfo>> = _calendars.asStateFlow()
 
+    /** 숨긴 캘린더까지 포함한 전체 목록(설정 > 목록 관리 전용). 다른 화면은 [calendars]를 쓴다. */
+    private val _allCalendars = MutableStateFlow<List<CalendarInfo>>(emptyList())
+    val allCalendars: StateFlow<List<CalendarInfo>> = _allCalendars.asStateFlow()
+
+    private val _hiddenCalendarIds = MutableStateFlow<Set<Long>>(emptySet())
+    val hiddenCalendarIds: StateFlow<Set<Long>> = _hiddenCalendarIds.asStateFlow()
+
     // null=이 종류 전체, 빈 집합=없음 — visibleCalendarIds와 같은 규약이되 기본값은 emptySet()
     // (opt-in). 프리셋을 통해서만 채워지고, 캘린더처럼 상시 노출되는 체크박스 목록은 없다.
     private val _visibleNotionDatabaseIds = MutableStateFlow<Set<String>?>(emptySet())
@@ -191,11 +199,17 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
                 _remindersEnabled.value = settings.remindersEnabled
                 _presetLinkEnabled.value = settings.presetLinkEnabled
                 _defaultReminderMinutes.value = settings.defaultReminderMinutes
+                val hiddenChanged = _hiddenCalendarIds.value != settings.hiddenCalendarIds
+                _hiddenCalendarIds.value = settings.hiddenCalendarIds
+                if (hiddenChanged) {
+                    HiddenCalendars.invalidate()
+                    _calendars.value = _allCalendars.value.filter { it.id !in settings.hiddenCalendarIds }
+                }
                 // DataStore의 첫 값이 도착하기 전에 Monthly/Daily가 먼저 컴포지션되어
                 // ensureMonthLoaded가 기본값(빈 Notion 필터)으로 먼저 캐시를 채워버릴 수 있다.
                 // "최초 로드였는지"로 걸러내면 그 잘못 채워진 캐시를 영영 못 고치므로, 매번
                 // 비교해서 실제로 달라졌을 때는(최초든 아니든) 무조건 무효화한다.
-                if (calendarFilterChanged || notionFilterChanged || weekStartChanged || presetViewChanged) {
+                if (calendarFilterChanged || notionFilterChanged || weekStartChanged || presetViewChanged || hiddenChanged) {
                     invalidateCache()
                     ensureMonthLoaded(_visibleYearMonth.value, force = true)
                 }
@@ -216,7 +230,15 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
     }
 
     suspend fun refreshCalendars() {
-        _calendars.value = repository.getCalendars()
+        val all = repository.getCalendars()
+        _allCalendars.value = all
+        _calendars.value = all.filter { it.id !in _hiddenCalendarIds.value }
+    }
+
+    /** 목록에서 숨길 캘린더를 정한다. 숨긴 캘린더는 앱·위젯·프리셋·선택지 어디에도 나오지 않고 일정도 읽지 않는다. */
+    suspend fun setHiddenCalendarIds(ids: Set<Long>) {
+        appSettingsRepository.setHiddenCalendarIds(ids)
+        RunCalWidgetRenderer.updateAllWidgets(getApplication())
     }
 
     suspend fun refreshNotionDatabases() {
