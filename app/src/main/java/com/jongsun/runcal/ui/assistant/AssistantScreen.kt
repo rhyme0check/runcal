@@ -502,7 +502,7 @@ private fun EventLine(event: EventItem, calendarName: String) {
         "종일"
     } else {
         val begin = Instant.ofEpochMilli(event.begin).atZone(zone).toLocalTime()
-        "%02d:%02d".format(begin.hour, begin.minute)
+        com.jongsun.runcal.data.formatClock(begin.hour, begin.minute)
     }
     Row(verticalAlignment = Alignment.CenterVertically) {
         Box(modifier = Modifier.size(8.dp).background(Color(event.displayColor ?: event.eventColor ?: event.color), CircleShape))

@@ -272,6 +272,30 @@ fun SettingsScreen(viewModel: CalendarViewModel, assistantViewModel: AssistantVi
 
         item {
             HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+            val context = androidx.compose.ui.platform.LocalContext.current
+            val use24h = com.jongsun.runcal.data.TimeFormatPrefs.use24h
+            Text(text = "시각 표기", style = MaterialTheme.typography.titleMedium)
+            Text(
+                text = "일정 시간, 시간 선택, 위젯, 알림에 함께 적용됩니다. 주간표 내보내기는 항상 24시간입니다.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(modifier = Modifier.padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(true to "24시간 (14:30)", false to "12시간 (오후 2:30)").forEach { (value, label) ->
+                    FilterChip(
+                        selected = use24h == value,
+                        onClick = {
+                            com.jongsun.runcal.data.TimeFormatPrefs.set(context, value)
+                            scope.launch { com.jongsun.runcal.widget.RunCalWidgetRenderer.updateAllWidgets(context.applicationContext) }
+                        },
+                        label = { Text(label) },
+                    )
+                }
+            }
+        }
+
+        item {
+            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
             Text(text = "앱 글자 크기: ${appFontScaleStepLabel(localFontStep)}", style = MaterialTheme.typography.titleMedium)
             Slider(
                 value = localFontStep.toFloat(),

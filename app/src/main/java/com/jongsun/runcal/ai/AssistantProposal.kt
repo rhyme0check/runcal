@@ -322,7 +322,7 @@ class ProposalBuilder(private val data: AssistantDataSource, private val labels:
             return if (last > first) "$head 종일 ~ ${last.monthValue}/${last.dayOfMonth}" else "$head 종일"
         }
         val e = Instant.ofEpochMilli(end).atZone(zone)
-        val time = "%02d:%02d–%02d:%02d".format(s.hour, s.minute, e.hour, e.minute)
+        val time = "${com.jongsun.runcal.data.formatClock(s.hour, s.minute)}–${com.jongsun.runcal.data.formatClock(e.hour, e.minute)}"
         return "$head $time"
     }
 
@@ -346,7 +346,7 @@ fun describeEventRange(allDay: Boolean, begin: Long, end: Long): String {
         return if (last > first) "$head 종일 ~ ${last.monthValue}/${last.dayOfMonth}" else "$head 종일"
     }
     val e = Instant.ofEpochMilli(end).atZone(DESCRIBE_ZONE)
-    return "$head " + "%02d:%02d–%02d:%02d".format(s.hour, s.minute, e.hour, e.minute)
+    return "$head " + "${com.jongsun.runcal.data.formatClock(s.hour, s.minute)}–${com.jongsun.runcal.data.formatClock(e.hour, e.minute)}"
 }
 
 fun describeReminders(minutes: List<Int>): String =

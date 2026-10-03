@@ -58,7 +58,7 @@ class ReminderAlarmReceiver : BroadcastReceiver() {
         val timeLabel = if (detail.allDay) {
             "종일"
         } else {
-            Instant.ofEpochMilli(occurrenceBeginMillis).atZone(zone).toLocalTime().let { "%02d:%02d".format(it.hour, it.minute) }
+            Instant.ofEpochMilli(occurrenceBeginMillis).atZone(zone).toLocalTime().let { com.jongsun.runcal.data.formatClock(it.hour, it.minute) }
         }
         val bodyParts = listOfNotNull(timeLabel, detail.location.takeIf { it.isNotBlank() })
         val notificationId = notificationIdFor(eventId, occurrenceBeginMillis, reminderMinutes)

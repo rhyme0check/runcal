@@ -47,6 +47,5 @@ fun LocalDate.titleKorean(): String {
     return "${year}년 ${monthValue}월 ${dayOfMonth}일 ($weekday)"
 }
 
-private val TIME_FORMATTER: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
-
-fun LocalTime.toTimeLabel(): String = format(TIME_FORMATTER)
+/** 설정(24/12시간)에 따른 시각 표기. */
+fun LocalTime.toTimeLabel(): String = com.jongsun.runcal.data.formatClock(hour, minute)

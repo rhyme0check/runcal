@@ -43,7 +43,8 @@ private fun formatEventTimeForExport(event: EventItem, zone: ZoneId): String {
     if (event.allDay) return "종일"
     val start = Instant.ofEpochMilli(event.begin).atZone(zone).toLocalTime()
     val end = Instant.ofEpochMilli(event.end).atZone(zone).toLocalTime()
-    return "${start.toTimeLabel()}~${end.toTimeLabel()}"
+    // 내보내기는 데이터라 설정과 무관하게 항상 24시간 표기.
+    return "${com.jongsun.runcal.data.formatClock(start.hour, start.minute, use24h = true)}~${com.jongsun.runcal.data.formatClock(end.hour, end.minute, use24h = true)}"
 }
 
 /**

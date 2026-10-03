@@ -392,7 +392,7 @@ private fun NotionGroupChooser(viewModel: CalendarViewModel, event: EventItem) {
 private fun formatDate(date: LocalDate): String =
     "${date.monthValue}/${date.dayOfMonth}(${date.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.KOREAN)})"
 
-private fun formatTime(time: LocalTime): String = "%02d:%02d".format(time.hour, time.minute)
+private fun formatTime(time: LocalTime): String = com.jongsun.runcal.data.formatClock(time.hour, time.minute)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1130,7 +1130,7 @@ private fun EventDatePickerDialog(initialDate: LocalDate, onDismiss: () -> Unit,
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun EventTimePickerDialog(initialTime: LocalTime, onDismiss: () -> Unit, onConfirm: (LocalTime) -> Unit) {
-    val state = rememberTimePickerState(initialHour = initialTime.hour, initialMinute = initialTime.minute, is24Hour = true)
+    val state = rememberTimePickerState(initialHour = initialTime.hour, initialMinute = initialTime.minute, is24Hour = com.jongsun.runcal.data.TimeFormatPrefs.use24h)
     Dialog(onDismissRequest = onDismiss) {
         Surface(shape = MaterialTheme.shapes.extraLarge, tonalElevation = 6.dp) {
             Column(modifier = Modifier.padding(24.dp)) {

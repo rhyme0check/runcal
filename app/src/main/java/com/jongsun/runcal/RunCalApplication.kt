@@ -27,6 +27,8 @@ class RunCalApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // 시각 표기(24/12시간)는 위젯·알림·화면이 동기로 읽으므로 가장 먼저 읽어 둔다.
+        com.jongsun.runcal.data.TimeFormatPrefs.load(this)
         ensureReminderNotificationChannel(this)
         syncAssistantShortcut(this)
         WorkScheduler.scheduleAll(this)

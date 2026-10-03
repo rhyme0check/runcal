@@ -851,7 +851,7 @@ object RunCalWidgetRenderer {
     private fun formatEventTime(event: EventItem, zone: ZoneId): String {
         if (event.allDay) return "종일"
         val time = Instant.ofEpochMilli(event.begin).atZone(zone).toLocalTime()
-        return "%02d:%02d".format(time.hour, time.minute)
+        return com.jongsun.runcal.data.formatClock(time.hour, time.minute)
     }
 
     /** 글자크기 단계가 커질수록 한 줄이 차지하는 공간도 커지므로, 보여줄 최대 행 수를 살짝 줄인다. */
