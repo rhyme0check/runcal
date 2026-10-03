@@ -83,7 +83,10 @@ data class NotionPage(
  * 못 찾으면 null.
  */
 fun parseNotionDatabaseId(input: String): String? {
-    val withoutQuery = input.substringBefore("?").replace("-", "")
-    val hex = Regex("[0-9a-fA-F]{32}").find(withoutQuery)?.value ?: return null
+    // Notion 주소의 id는 항상 경로 맨 끝(".../DB이름-<32자리>")에 있다. 이름이 a~f로 끝나면 이름 글자가 id 앞에 붙어
+    // 32자보다 긴 hex 덩어리가 되므로, 마지막 경로의 마지막 hex 덩어리에서 끝 32자를 쓴다.
+    val lastSegment = input.trim().substringBefore("?").substringBefore("#").trimEnd('/').substringAfterLast('/').replace("-", "")
+    val run = Regex("[0-9a-fA-F]{32,}").findAll(lastSegment).lastOrNull()?.value ?: return null
+    val hex = run.takeLast(32)
     return "${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20, 32)}"
 }
