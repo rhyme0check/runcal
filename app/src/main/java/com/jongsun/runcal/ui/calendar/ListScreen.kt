@@ -102,7 +102,9 @@ fun ListScreen(viewModel: CalendarViewModel, onNavigateToDate: (LocalDate) -> Un
         }
     }
 
-    LaunchedEffect(rangeStart, rangeEndExclusive) {
+    // 일정이 바뀌면(편집·Notion 수정·외부 동기화) 같은 범위라도 다시 읽는다.
+    val dataVersion by viewModel.dataVersion.collectAsStateWithLifecycle()
+    LaunchedEffect(rangeStart, rangeEndExclusive, dataVersion) {
         val startMillis = rangeStart.atStartOfDay(zone).toInstant().toEpochMilli()
         val endMillis = rangeEndExclusive.atStartOfDay(zone).toInstant().toEpochMilli()
         events = viewModel.eventsInRange(startMillis, endMillis)

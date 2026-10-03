@@ -142,6 +142,11 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
     private val _monthCache = MutableStateFlow<Map<YearMonth, List<EventItem>>>(emptyMap())
     val monthCache: StateFlow<Map<YearMonth, List<EventItem>>> = _monthCache.asStateFlow()
 
+    private val _dataVersion = MutableStateFlow(0)
+
+    /** 일정 데이터가 바뀔 때마다 증가한다. 월 캐시를 쓰지 않고 직접 조회하는 화면(목록)이 다시 읽는 신호로 쓴다. */
+    val dataVersion: StateFlow<Int> = _dataVersion.asStateFlow()
+
     private val loadingMonths = mutableSetOf<YearMonth>()
 
     // 음력/공휴일/절기. 표시 설정은 위젯이 동기로 읽어야 해서 SharedPreferences(SpecialDayPrefs)에 두고,
@@ -316,6 +321,7 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
     fun invalidateCache() {
         _monthCache.value = emptyMap()
         loadingMonths.clear()
+        _dataVersion.value++
     }
 
     /**
