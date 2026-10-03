@@ -955,8 +955,10 @@ private fun EventEditContent(
             initialDate = startDate,
             onDismiss = { showStartDatePicker = false },
             onConfirm = { picked ->
+                // 시작일을 옮기면 기간(며칠짜리인지)을 유지한 채 종료일도 같이 옮긴다.
+                val spanDays = java.time.temporal.ChronoUnit.DAYS.between(startDate, endDate).coerceAtLeast(0)
                 startDate = picked
-                if (endDate.isBefore(picked)) endDate = picked
+                endDate = picked.plusDays(spanDays)
                 showStartDatePicker = false
             },
         )
@@ -976,7 +978,18 @@ private fun EventEditContent(
         EventTimePickerDialog(
             initialTime = startTime,
             onDismiss = { showStartTimePicker = false },
-            onConfirm = { startTime = it; showStartTimePicker = false },
+            onConfirm = { picked ->
+                // 시작 시각을 바꾸면 지금 길이(새 일정은 기본 1시간)를 유지한 채 종료도 같이 옮긴다.
+                // 길이가 0 이하(종료가 시작보다 이르거나 같음)면 1시간으로 둔다. 자정을 넘기면 종료일도 넘어간다.
+                val oldStart = startDate.atTime(startTime)
+                val oldEnd = endDate.atTime(endTime)
+                val duration = java.time.Duration.between(oldStart, oldEnd).takeIf { !it.isNegative && !it.isZero } ?: java.time.Duration.ofHours(1)
+                val newEnd = startDate.atTime(picked).plus(duration)
+                startTime = picked
+                endDate = newEnd.toLocalDate()
+                endTime = newEnd.toLocalTime()
+                showStartTimePicker = false
+            },
         )
     }
     if (showEndTimePicker) {
