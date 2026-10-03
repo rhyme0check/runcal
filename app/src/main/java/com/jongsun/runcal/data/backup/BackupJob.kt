@@ -123,7 +123,8 @@ object BackupJob {
             notionDatabases = notionDatabases,
             eventColorStyles = eventColorStyles,
             localEvents = localEvents,
-            eventTypes = db.eventTypeDao().getAll().map { BackupEventType(it.id, it.name, it.colorArgb, it.defaultCalendarId, it.defaultReminderMinutes, it.sortOrder) },
+            eventTypes = db.eventTypeDao().getAll().map { BackupEventType(it.id, it.name, it.colorArgb, it.defaultCalendarId, it.defaultReminderMinutes, it.sortOrder, it.titleKeywords) },
+            notionGroupAssignments = db.eventTypeDao().allNotionAssignments().map { BackupNotionGroupAssignment(it.registrationId, it.pageId, it.typeId) },
         )
     }
 

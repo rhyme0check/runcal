@@ -26,6 +26,10 @@ sealed interface SourceRef {
 data class SourceSelection(
     val calendarIds: Set<Long>?,
     val notionDbIds: Set<String>?,
+    /** 일정그룹(P11). 비어 있지 않으면 위 캘린더/Notion에 더해 이 그룹들의 일정도 보여 준다(합집합). null·빈 집합=그룹 조건 없음. */
+    val groupIds: Set<String>? = null,
+    /** 지금 보는 프리셋이 "일정 색을 프리셋 색으로"를 켰을 때 그 색. */
+    val overrideColor: Int? = null,
 )
 
 /** 캘린더/Notion을 동일하게 다루기 위한 읽기 전용 인터페이스. 쓰기는 이 인터페이스에 없다(Notion은 읽기 전용). */

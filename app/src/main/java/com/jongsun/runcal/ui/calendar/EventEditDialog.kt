@@ -272,6 +272,7 @@ private fun NotionItemDialog(viewModel: CalendarViewModel, event: EventItem, onD
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+                NotionGroupChooser(viewModel = viewModel, event = event)
                 message?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
             }
         },
@@ -348,6 +349,42 @@ private fun NotionItemDialog(viewModel: CalendarViewModel, event: EventItem, onD
             endTime = picked
             picker = null
         }
+    }
+}
+
+/**
+ * Notion 항목의 일정그룹 선택(P11). 앱 안에서만 쓰는 분류라 DB의 "앱에서 수정" 설정과 상관없이 바꿀 수 있고, 누르는 즉시 저장된다.
+ * "자동"은 그룹의 제목 규칙을 따른다(지금 어떤 그룹으로 잡히는지 함께 보여 준다).
+ */
+@Composable
+private fun NotionGroupChooser(viewModel: CalendarViewModel, event: EventItem) {
+    val groups by viewModel.eventTypes.collectAsStateWithLifecycle()
+    if (groups.isEmpty()) return
+    val scope = rememberCoroutineScope()
+    // null=자동(직접 지정 없음), ""=그룹 없음, 그 밖=그룹 id
+    var manual by remember(event) { mutableStateOf<String?>(null) }
+    var autoName by remember(event) { mutableStateOf<String?>(null) }
+    LaunchedEffect(event, groups) {
+        val index = viewModel.groupIndex()
+        manual = index.notionManualGroupId(event)
+        autoName = index.matchRules(event.title)?.name
+    }
+    fun choose(value: String?) {
+        manual = value
+        scope.launch { viewModel.setNotionGroup(event, value) }
+    }
+    Text("일정그룹 (앱 안에서만 쓰는 분류, Notion에는 쓰지 않음)", style = MaterialTheme.typography.labelMedium)
+    Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        FilterChip(selected = manual == null, onClick = { choose(null) }, label = { Text("자동" + (autoName?.let { ": $it" } ?: ": 없음")) })
+        groups.forEach { group ->
+            FilterChip(
+                selected = manual == group.id,
+                onClick = { choose(group.id) },
+                leadingIcon = { Box(modifier = Modifier.size(10.dp).background(Color(group.colorArgb), CircleShape)) },
+                label = { Text(group.name) },
+            )
+        }
+        FilterChip(selected = manual == "", onClick = { choose("") }, label = { Text("그룹 없음") })
     }
 }
 
@@ -545,7 +582,7 @@ private fun EventEditContent(
                 modifier = Modifier.fillMaxWidth(),
             )
             if (eventTypes.isNotEmpty()) {
-                Text(text = "유형", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 8.dp))
+                Text(text = "일정그룹 (그룹 색이 일정 색보다 우선)", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 8.dp))
                 Row(
                     modifier = Modifier.padding(vertical = 4.dp).horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -553,7 +590,8 @@ private fun EventEditContent(
                     FilterChip(
                         selected = typeId == null,
                         onClick = { typeId = null; styleTouched = true },
-                        label = { Text("없음") },
+                        // 직접 고르지 않으면 그룹의 제목 규칙으로 자동 분류된다.
+                        label = { Text("자동(제목 규칙)") },
                     )
                     eventTypes.forEach { type ->
                         FilterChip(
@@ -562,7 +600,7 @@ private fun EventEditContent(
                                 typeId = type.id
                                 styleTouched = true
                                 eventColor = type.colorArgb
-                                // 새 일정에서만 캘린더·알림을 유형 기본값으로 채운다(기존 일정의 저장 위치는 함부로 바꾸지 않음).
+                                // 새 일정에서만 캘린더·알림을 그룹 기본값으로 채운다(기존 일정의 저장 위치는 함부로 바꾸지 않음).
                                 if (existing == null) {
                                     type.defaultCalendarId?.takeIf { id -> writableCalendars.any { it.id == id } }?.let { selectedCalendarId = it }
                                     when (val m = type.defaultReminderMinutes) {

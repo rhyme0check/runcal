@@ -84,4 +84,8 @@ data class EventItem(
     val rrule: String? = null,
     // 일정에 직접 지정한 색(CalendarContract.Events.EVENT_COLOR). null이면 캘린더(소스) 색을 따른다.
     val eventColor: Int? = null,
+    // 일정그룹(P11). 조회할 때 [withGroup]이 채운다 — 저장되는 값이 아니다.
+    val groupId: String? = null,
+    // 그룹 색 또는 지금 보는 프리셋의 덮어쓰기 색. 있으면 [eventColor]·캘린더 색보다 우선한다.
+    val displayColor: Int? = null,
 )

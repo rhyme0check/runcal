@@ -33,6 +33,9 @@ data class WidgetPreset(
     // null = 이 프리셋에 Notion DB 없음(전체 아님) — calendarIds의 null=전체와 의도적으로 비대칭.
     // 기존에 저장된 프리셋이 새 Notion DB 등록 후에도 그대로 예전처럼 동작하도록 opt-in으로 둔다.
     val notionDatabaseIds: Set<String>? = null,
+    // P11: 이 프리셋에 묶은 일정그룹(캘린더·DB와 합집합)과, 이 프리셋을 볼 때 일정 색을 프리셋 색으로 덮을지.
+    val groupIds: Set<String>? = null,
+    val overrideEventColor: Boolean = false,
 )
 
 val DEFAULT_PRESET = WidgetPreset(id = "__all__", name = "전체", colorArgb = PRESET_COLOR_PALETTE[6], calendarIds = null)

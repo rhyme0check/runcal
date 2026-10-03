@@ -30,6 +30,19 @@ private fun lab(@ColorInt argb: Int): DoubleArray = DoubleArray(3).also { ColorU
 fun colorDistance(@ColorInt a: Int, @ColorInt b: Int): Double = ColorUtils.distanceEuclidean(lab(a), lab(b))
 
 /**
+ * 추천색 고를 때 쓰는 거리. 밝기 차이는 덜 치고(0.4배) 색상·채도 차이를 주로 본다 — 같은 빨강 계열의 어두운 색(버건디)이
+ * 공휴일 빨강과 "멀다"고 잡히지 않게 한다. 다크 모드에서는 어두운 색이 밝게 보정돼 실제로도 더 비슷해 보인다.
+ */
+private fun recommendDistance(@ColorInt a: Int, @ColorInt b: Int): Double {
+    val x = lab(a)
+    val y = lab(b)
+    val dl = (x[0] - y[0]) * 0.4
+    val da = x[1] - y[1]
+    val db = x[2] - y[2]
+    return kotlin.math.sqrt(dl * dl + da * da + db * db)
+}
+
+/**
  * [existing](이미 쓰이는 캘린더·Notion·유형 색)과 최대한 구분되는 추천색 [count]개. 기존 색과의 최소 거리가 가장 큰 후보를
  * 하나씩 고르고, 고른 색도 "기존"에 넣어 다음 후보를 고른다(최원점 탐색) — 추천색끼리도 서로 멀어진다.
  */
@@ -38,7 +51,7 @@ fun recommendColors(existing: Collection<Int>, count: Int = RECOMMENDED_COUNT): 
     val pool = CANDIDATES.toMutableList()
     val picked = ArrayList<Int>()
     while (picked.size < count && pool.isNotEmpty()) {
-        val best = if (taken.isEmpty()) pool.first() else pool.maxBy { c -> taken.minOf { colorDistance(c, it) } }
+        val best = if (taken.isEmpty()) pool.first() else pool.maxBy { c -> taken.minOf { recommendDistance(c, it) } }
         picked += best
         taken += best
         pool.remove(best)

@@ -414,6 +414,7 @@ class CalendarRepository(private val context: Context) : EventSource {
         resolver.delete(ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId), null, null)
         provenanceDao.deleteByCalendarEventId(eventId)
         eventTypeDao.deleteAssignment(eventId)
+        EventGroups.invalidate()
 
         val values = ContentValues().apply {
             put(CalendarContract.Events.CALENDAR_ID, snapshot.calendarId)
@@ -475,6 +476,7 @@ class CalendarRepository(private val context: Context) : EventSource {
 
     private suspend fun setEventType(eventId: Long, typeId: String?) {
         if (typeId == null) eventTypeDao.deleteAssignment(eventId) else eventTypeDao.assign(EventTypeAssignmentEntity(eventId, typeId))
+        EventGroups.invalidate()
     }
 
     suspend fun getEventTypeId(eventId: Long): String? = withContext(Dispatchers.IO) { eventTypeDao.typeIdFor(eventId) }
@@ -536,6 +538,7 @@ class CalendarRepository(private val context: Context) : EventSource {
             if (deleted > 0) {
                 provenanceDao.deleteByCalendarEventId(eventId)
                 eventTypeDao.deleteAssignment(eventId)
+                EventGroups.invalidate()
             }
             deleted
         } catch (e: SecurityException) {

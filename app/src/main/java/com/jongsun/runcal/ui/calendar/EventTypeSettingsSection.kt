@@ -44,12 +44,16 @@ import com.jongsun.runcal.data.AccountEventColors
 import com.jongsun.runcal.data.CalendarInfo
 import com.jongsun.runcal.data.hasRestrictedEventColors
 import com.jongsun.runcal.data.nearestColor
+import com.jongsun.runcal.data.parseTitleKeywords
 import com.jongsun.runcal.data.recommendColors
 import com.jongsun.runcal.data.room.EventTypeEntity
 import java.util.UUID
 import kotlinx.coroutines.launch
 
-/** 일정 유형 목록(업무·미팅·휴가·러닝 …). 유형마다 색과 기본 캘린더·알림을 정해 두고 일정 등록 때 고른다. */
+/**
+ * 일정그룹 목록(업무·미팅·포인트훈련 …). 그룹마다 색·제목 규칙·기본 캘린더·알림을 정해 둔다. 그룹 색은 개별 일정 색보다 우선하고,
+ * 그룹 색을 바꾸면 이미 만든 일정에도 바로 반영된다. 프리셋은 이 그룹들을 골라 묶을 수 있다.
+ */
 @Composable
 fun EventTypeSettingsSection(viewModel: CalendarViewModel, modifier: Modifier = Modifier) {
     val types by viewModel.eventTypes.collectAsStateWithLifecycle()
@@ -60,7 +64,7 @@ fun EventTypeSettingsSection(viewModel: CalendarViewModel, modifier: Modifier = 
 
     Column(modifier = modifier.fillMaxWidth()) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Text(text = "일정 유형", style = MaterialTheme.typography.titleMedium)
+            Text(text = "일정그룹", style = MaterialTheme.typography.titleMedium)
             TextButton(onClick = { creating = true }) {
                 Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(4.dp))
@@ -68,12 +72,19 @@ fun EventTypeSettingsSection(viewModel: CalendarViewModel, modifier: Modifier = 
             }
         }
         Text(
-            text = "저장할 캘린더와 별개로 일정의 색을 정합니다. 예) 업무=초록, 미팅=황색(개인 캘린더), 러닝=주황(구글 캘린더).",
+            text = "저장할 캘린더와 별개로 일정을 묶고 색을 정합니다. 색 우선순위: 프리셋 색(켠 경우) → 그룹 색 → 일정 색 → 캘린더 색. " +
+                "제목 규칙을 적어 두면 Notion 항목처럼 직접 고르지 않은 일정도 제목 앞글자로 자동 분류됩니다(예: RP, RACE).",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         if (types.isEmpty()) {
-            Text("아직 유형이 없습니다.", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 8.dp))
+            Text("아직 그룹이 없습니다.", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 8.dp))
+        }
+        // 러닝 기본 그룹이 아직 없으면 한 번에 만들 수 있게 한다(제목 규칙 포함).
+        if (types.none { it.name == "포인트훈련" || it.name == "이지훈련" }) {
+            TextButton(onClick = { scope.launch { viewModel.createRunningGroups() } }) {
+                Text("러닝 기본 그룹 만들기 (포인트훈련·이지훈련·보강·휴식)")
+            }
         }
         types.forEach { type ->
             Row(
@@ -86,9 +97,12 @@ fun EventTypeSettingsSection(viewModel: CalendarViewModel, modifier: Modifier = 
                     Text(type.name, style = MaterialTheme.typography.bodyLarge)
                     val calName = calendars.firstOrNull { it.id == type.defaultCalendarId }?.displayName ?: "캘린더 지정 안 함"
                     Text("$calName · ${reminderText(type.defaultReminderMinutes)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (type.titleKeywords.isNotBlank()) {
+                        Text("제목 규칙: ${type.titleKeywords}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
                 IconButton(onClick = { scope.launch { viewModel.deleteEventType(type.id) } }) {
-                    Icon(Icons.Default.Delete, contentDescription = "유형 삭제")
+                    Icon(Icons.Default.Delete, contentDescription = "그룹 삭제")
                 }
             }
         }
@@ -129,6 +143,7 @@ private fun EventTypeEditDialog(
     var color by remember { mutableStateOf(existing?.colorArgb ?: recommended.first()) }
     var calendarId by remember { mutableStateOf(existing?.defaultCalendarId) }
     var reminder by remember { mutableStateOf(existing?.defaultReminderMinutes) }
+    var keywords by remember { mutableStateOf(existing?.titleKeywords ?: "") }
     var showCalendarMenu by remember { mutableStateOf(false) }
     var showReminderMenu by remember { mutableStateOf(false) }
 
@@ -139,10 +154,18 @@ private fun EventTypeEditDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (existing == null) "유형 추가" else "유형 수정") },
+        title = { Text(if (existing == null) "그룹 추가" else "그룹 수정") },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("이름") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(
+                    value = keywords,
+                    onValueChange = { keywords = it },
+                    label = { Text("제목 규칙(쉼표로 구분, 앞글자 일치)") },
+                    placeholder = { Text("예: RP, RACE") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
                 Text("기본 캘린더", style = MaterialTheme.typography.labelMedium)
                 Box {
                     OutlinedButton(onClick = { showCalendarMenu = true }) { Text(calendar?.distinctName(calendars) ?: "지정 안 함") }
@@ -189,6 +212,7 @@ private fun EventTypeEditDialog(
                             defaultCalendarId = calendarId,
                             defaultReminderMinutes = reminder,
                             sortOrder = existing?.sortOrder ?: nextSortOrder,
+                            titleKeywords = parseTitleKeywords(keywords).joinToString(", "),
                         ),
                     )
                 },

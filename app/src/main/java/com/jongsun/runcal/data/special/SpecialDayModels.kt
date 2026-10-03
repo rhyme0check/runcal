@@ -9,8 +9,8 @@ import java.time.ZoneOffset
 /** 공휴일/절기 이름 막대용 가짜 이벤트의 calendarId. 진짜 캘린더 id(양수)와 절대 겹치지 않는다. */
 const val SPECIAL_CALENDAR_ID = -100L
 
-private const val HOLIDAY_BAR_COLOR = 0xFFD32F2F.toInt()
-private const val SOLAR_TERM_BAR_COLOR = 0xFF2E7D32.toInt()
+const val HOLIDAY_BAR_COLOR = 0xFFD32F2F.toInt()
+const val SOLAR_TERM_BAR_COLOR = 0xFF2E7D32.toInt()
 
 /** 음력 날짜. [isLeap]이면 윤달. */
 data class LunarDate(val month: Int, val day: Int, val isLeap: Boolean) {

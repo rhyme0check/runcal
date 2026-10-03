@@ -56,6 +56,16 @@ private val MIGRATION_4_5 = object : Migration(4, 5) {
     }
 }
 
+private val MIGRATION_7_8 = object : Migration(7, 8) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE event_types ADD COLUMN titleKeywords TEXT NOT NULL DEFAULT ''")
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS notion_group_assignments (" +
+                "registrationId TEXT NOT NULL, pageId TEXT NOT NULL, typeId TEXT NOT NULL, PRIMARY KEY(registrationId, pageId))",
+        )
+    }
+}
+
 private val MIGRATION_6_7 = object : Migration(6, 7) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("ALTER TABLE notion_databases ADD COLUMN writeEnabled INTEGER NOT NULL DEFAULT 0")
@@ -88,8 +98,9 @@ private val MIGRATION_5_6 = object : Migration(5, 6) {
         SpecialFetchStatusEntity::class,
         EventTypeEntity::class,
         EventTypeAssignmentEntity::class,
+        NotionGroupAssignmentEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = true,
 )
 abstract class RunCalDatabase : RoomDatabase() {
@@ -110,7 +121,7 @@ abstract class RunCalDatabase : RoomDatabase() {
                     context.applicationContext,
                     RunCalDatabase::class.java,
                     "runcal_database",
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7).build().also { instance = it }
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8).build().also { instance = it }
             }
     }
 }

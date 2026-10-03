@@ -109,7 +109,11 @@ data class BackupEventType(
     val defaultCalendarId: Long?,
     val defaultReminderMinutes: Int?,
     val sortOrder: Int,
+    val titleKeywords: String = "",
 )
+
+@Serializable
+data class BackupNotionGroupAssignment(val registrationId: String, val pageId: String, val typeId: String)
 
 @Serializable
 data class BackupPayload(
@@ -123,4 +127,6 @@ data class BackupPayload(
     val eventColorStyles: List<BackupEventColorStyle>,
     val localEvents: List<BackupLocalEvent>,
     val eventTypes: List<BackupEventType> = emptyList(),
+    /** Notion 항목 → 그룹 직접 지정(registrationId, pageId, typeId). */
+    val notionGroupAssignments: List<BackupNotionGroupAssignment> = emptyList(),
 )

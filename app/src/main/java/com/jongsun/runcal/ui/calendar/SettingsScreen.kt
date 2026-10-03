@@ -66,6 +66,8 @@ import com.jongsun.runcal.data.defaultPresetCalendarIds
 import com.jongsun.runcal.data.MAX_APP_FONT_SCALE_STEP
 import com.jongsun.runcal.data.MIN_APP_FONT_SCALE_STEP
 import com.jongsun.runcal.data.room.NotionDatabaseEntity
+import com.jongsun.runcal.data.room.EventTypeEntity
+import com.jongsun.runcal.data.recommendColors
 import com.jongsun.runcal.export.WeeklyExportDialog
 import com.jongsun.runcal.ui.backup.BackupSettingsSection
 import com.jongsun.runcal.ui.notification.ReminderSettingsSection
@@ -92,6 +94,7 @@ fun SettingsScreen(viewModel: CalendarViewModel, assistantViewModel: AssistantVi
     val weekStartDay by viewModel.weekStartDay.collectAsStateWithLifecycle()
     val fontScaleStep by viewModel.appFontScaleStep.collectAsStateWithLifecycle()
     val presets by viewModel.presets.collectAsStateWithLifecycle()
+    val eventTypes by viewModel.eventTypes.collectAsStateWithLifecycle()
     val activePresetId by viewModel.activePresetId.collectAsStateWithLifecycle()
     val presetLinkEnabled by viewModel.presetLinkEnabled.collectAsStateWithLifecycle()
     val notionDatabases by viewModel.notionDatabases.collectAsStateWithLifecycle()
@@ -311,6 +314,8 @@ fun SettingsScreen(viewModel: CalendarViewModel, assistantViewModel: AssistantVi
             existing = null,
             calendars = calendars,
             notionDatabases = notionDatabases,
+            groups = eventTypes,
+            recommended = remember(presets, calendars, eventTypes) { recommendColors(viewModel.usedColors()) },
             onDismiss = { showAddPresetDialog = false },
             onSave = { newPreset ->
                 scope.launch { viewModel.savePresets(presets + newPreset) }
@@ -323,6 +328,8 @@ fun SettingsScreen(viewModel: CalendarViewModel, assistantViewModel: AssistantVi
             existing = preset,
             calendars = calendars,
             notionDatabases = notionDatabases,
+            groups = eventTypes,
+            recommended = remember(presets, calendars, eventTypes) { recommendColors(viewModel.usedColors()) },
             onDismiss = { editingPreset = null },
             onSave = { updated ->
                 scope.launch { viewModel.savePresets(presets.map { if (it.id == updated.id) updated else it }) }
@@ -393,8 +400,10 @@ private fun PresetRow(
             )
             val calendarLabel = if (preset.calendarIds == null) "전체 캘린더" else "캘린더 ${preset.calendarIds.size}개"
             val notionLabel = preset.notionDatabaseIds?.takeIf { it.isNotEmpty() }?.let { " · Notion ${it.size}개" }.orEmpty()
+            val groupLabel = preset.groupIds?.takeIf { it.isNotEmpty() }?.let { " · 그룹 ${it.size}개" }.orEmpty()
+            val colorLabel = if (preset.overrideEventColor) " · 프리셋 색 적용" else ""
             Text(
-                text = calendarLabel + notionLabel,
+                text = calendarLabel + notionLabel + groupLabel + colorLabel,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -419,9 +428,13 @@ private fun PresetEditDialog(
     existing: AppPreset?,
     calendars: List<CalendarInfo>,
     notionDatabases: List<NotionDatabaseEntity>,
+    groups: List<EventTypeEntity>,
+    recommended: List<Int>,
     onDismiss: () -> Unit,
     onSave: (AppPreset) -> Unit,
 ) {
+    var selectedGroupIds by remember { mutableStateOf(existing?.groupIds ?: emptySet()) }
+    var overrideEventColor by remember { mutableStateOf(existing?.overrideEventColor ?: false) }
     var name by remember { mutableStateOf(existing?.name ?: "") }
     var colorArgb by remember { mutableIntStateOf(existing?.colorArgb ?: APP_PRESET_COLOR_PALETTE.first()) }
     // null(전체)과 빈 집합을 구분해야 하므로, 다이얼로그 안에서는 항상 구체적인 집합으로 다룬다.
@@ -453,22 +466,46 @@ private fun PresetEditDialog(
                 )
                 Spacer(modifier = Modifier.height(12.dp))
                 Text(text = "색상", style = MaterialTheme.typography.labelMedium)
+                // 추천색은 지금 쓰이는 캘린더·그룹 색(공휴일 포함)과 최대한 멀리 떨어진 색이다. 자유색(+)도 고를 수 있다.
+                ColorChoiceRow(selected = colorArgb, recommended = recommended, restricted = null, onSelect = { it?.let { c -> colorArgb = c } })
                 Row(
-                    modifier = Modifier.padding(vertical = 4.dp).horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth().clickable { overrideEventColor = !overrideEventColor }.padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    APP_PRESET_COLOR_PALETTE.forEach { colorOption ->
-                        Box(
-                            modifier = Modifier
-                                .size(28.dp)
-                                .background(Color(colorOption), CircleShape)
-                                .border(
-                                    width = if (colorOption == colorArgb) 2.dp else 0.dp,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    shape = CircleShape,
-                                )
-                                .clickable { colorArgb = colorOption },
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("이 프리셋을 볼 때 일정을 프리셋 색으로", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            "켜면 그룹·일정 색보다 우선합니다. 끄면 프리셋 색은 이름 옆 점에만 쓰입니다.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                    }
+                    Switch(checked = overrideEventColor, onCheckedChange = { overrideEventColor = it })
+                }
+                if (groups.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(text = "포함할 일정그룹", style = MaterialTheme.typography.labelMedium)
+                    Text(
+                        "아래 캘린더와 합쳐서 보여 줍니다(어느 캘린더·Notion에 있든 그룹 일정은 포함).",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    groups.forEach { group ->
+                        val checked = group.id in selectedGroupIds
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { selectedGroupIds = if (checked) selectedGroupIds - group.id else selectedGroupIds + group.id },
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Checkbox(
+                                checked = checked,
+                                onCheckedChange = { now -> selectedGroupIds = if (now) selectedGroupIds + group.id else selectedGroupIds - group.id },
+                            )
+                            Box(modifier = Modifier.size(10.dp).background(Color(group.colorArgb), CircleShape))
+                            Text(text = group.name, style = MaterialTheme.typography.bodyMedium)
+                        }
                     }
                 }
                 Spacer(modifier = Modifier.height(12.dp))
@@ -543,6 +580,9 @@ private fun PresetEditDialog(
                             // 빈 선택은 null로 저장(둘 다 "Notion 없음"으로 취급되므로 동일) —
                             // 절대 "전부 선택"을 null로 저장하지 않는다(null=전체가 아니라 없음이므로).
                             notionDatabaseIds = selectedNotionIds.takeIf { it.isNotEmpty() },
+                            // 지워진 그룹 id는 저장하지 않는다.
+                            groupIds = selectedGroupIds.filter { id -> groups.any { it.id == id } }.toSet().takeIf { it.isNotEmpty() },
+                            overrideEventColor = overrideEventColor,
                         ),
                     )
                 },

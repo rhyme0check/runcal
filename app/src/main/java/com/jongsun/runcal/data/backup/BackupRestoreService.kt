@@ -56,7 +56,11 @@ object BackupRestoreService {
             val notionRestored = restoreNotionDatabases(context, db, payload.notionDatabases, mode)
             val colorStylesRestored = restoreEventColorStyles(db, payload.eventColorStyles, mode)
             restoreEventTypes(db, payload.eventTypes, mode)
+            payload.notionGroupAssignments.forEach {
+                db.eventTypeDao().assignNotion(com.jongsun.runcal.data.room.NotionGroupAssignmentEntity(it.registrationId, it.pageId, it.typeId))
+            }
             val localEventsRestored = restoreLocalEvents(db, calendarRepository, payload.localEvents, mode)
+            com.jongsun.runcal.data.EventGroups.invalidate()
 
             RestoreSummary(
                 presetsCount = presetsCount,
@@ -212,7 +216,7 @@ object BackupRestoreService {
         if (snapshots.isEmpty()) return
         val dao = db.eventTypeDao()
         if (mode == RestoreMode.OVERWRITE) dao.deleteAllTypes()
-        dao.upsertAll(snapshots.map { EventTypeEntity(it.id, it.name, it.colorArgb, it.defaultCalendarId, it.defaultReminderMinutes, it.sortOrder) })
+        dao.upsertAll(snapshots.map { EventTypeEntity(it.id, it.name, it.colorArgb, it.defaultCalendarId, it.defaultReminderMinutes, it.sortOrder, it.titleKeywords) })
     }
 
     /**

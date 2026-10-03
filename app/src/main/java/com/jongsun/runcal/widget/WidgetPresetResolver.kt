@@ -13,7 +13,7 @@ import kotlinx.coroutines.sync.withLock
 private const val TAG = "RunCal"
 private val migrateLock = Mutex()
 
-fun AppPreset.toWidgetPreset(): WidgetPreset = WidgetPreset(id, name, colorArgb, calendarIds, notionDatabaseIds)
+fun AppPreset.toWidgetPreset(): WidgetPreset = WidgetPreset(id, name, colorArgb, calendarIds, notionDatabaseIds, groupIds, overrideEventColor)
 
 /**
  * 이 위젯이 지금 보여줄 프리셋. 연동이 켜져 있고 위젯을 고정하지 않았으면 앱의 활성 프리셋, 아니면 위젯이 고른 프리셋.

@@ -8,7 +8,11 @@ import com.jongsun.runcal.data.AppSettingsRepository
 import com.jongsun.runcal.data.CalendarInfo
 import com.jongsun.runcal.data.EventStyleChoice
 import com.jongsun.runcal.data.parseCustomColorKey
+import com.jongsun.runcal.data.recommendColors
 import com.jongsun.runcal.data.room.EventTypeEntity
+import com.jongsun.runcal.data.room.NotionGroupAssignmentEntity
+import com.jongsun.runcal.data.EventGroupIndex
+import com.jongsun.runcal.data.EventGroups
 import com.jongsun.runcal.data.CalendarRepository
 import com.jongsun.runcal.data.backup.BackupPayload
 import com.jongsun.runcal.data.backup.BackupRestoreService
@@ -82,7 +86,7 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
     private val db = RunCalDatabase.getInstance(application)
     private val notionApiClient = NotionApiClient()
     private val notionEventSource = NotionEventSource(db.notionEventDao(), db.notionDatabaseDao())
-    private val eventRepository = EventRepository(repository, notionEventSource)
+    private val eventRepository = EventRepository(repository, notionEventSource, groupIndex = { EventGroups.index(application) })
     private val notionSyncJob = NotionSyncJob(db.notionDatabaseDao(), db.notionEventDao(), notionApiClient)
     private val notionWriteService by lazy { NotionWriteService(application) }
     private val zone: ZoneId = ZoneId.systemDefault()
@@ -171,6 +175,12 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
                 val calendarFilterChanged = _visibleCalendarIds.value != settings.visibleCalendarIds
                 val notionFilterChanged = _visibleNotionDatabaseIds.value != settings.visibleNotionDatabaseIds
                 val weekStartChanged = _weekStartDay.value != settings.weekStartDay
+                val activePresetBefore = _presets.value.firstOrNull { it.id == _activePresetId.value }
+                val activePresetAfter = settings.presets.firstOrNull { it.id == settings.activePresetId }
+                // 프리셋의 그룹·색 덮어쓰기가 바뀌면(프리셋 전환·편집) 같은 캘린더 필터여도 다시 읽어야 한다.
+                val presetViewChanged = activePresetBefore?.groupIds != activePresetAfter?.groupIds ||
+                    activePresetBefore?.overrideEventColor != activePresetAfter?.overrideEventColor ||
+                    (activePresetAfter?.overrideEventColor == true && activePresetBefore?.colorArgb != activePresetAfter.colorArgb)
                 _weekStartDay.value = settings.weekStartDay
                 _visibleCalendarIds.value = settings.visibleCalendarIds
                 _visibleNotionDatabaseIds.value = settings.visibleNotionDatabaseIds
@@ -185,7 +195,7 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
                 // ensureMonthLoaded가 기본값(빈 Notion 필터)으로 먼저 캐시를 채워버릴 수 있다.
                 // "최초 로드였는지"로 걸러내면 그 잘못 채워진 캐시를 영영 못 고치므로, 매번
                 // 비교해서 실제로 달라졌을 때는(최초든 아니든) 무조건 무효화한다.
-                if (calendarFilterChanged || notionFilterChanged || weekStartChanged) {
+                if (calendarFilterChanged || notionFilterChanged || weekStartChanged || presetViewChanged) {
                     invalidateCache()
                     ensureMonthLoaded(_visibleYearMonth.value, force = true)
                 }
@@ -226,14 +236,59 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
 
     suspend fun saveEventType(type: EventTypeEntity) {
         db.eventTypeDao().upsert(type)
+        afterGroupsChanged()
+    }
+
+    /** 그룹 색·규칙·직접 지정이 바뀌면 이미 그려진 일정 색과 프리셋 구성이 달라지므로 화면·위젯을 다시 읽는다. */
+    private suspend fun afterGroupsChanged() {
+        EventGroups.invalidate()
         refreshEventTypes()
+        invalidateCache()
+        ensureMonthLoaded(_visibleYearMonth.value, force = true)
+        RunCalWidgetRenderer.updateAllWidgets(getApplication())
+    }
+
+    suspend fun groupIndex(): EventGroupIndex = EventGroups.index(getApplication())
+
+    /** Notion 항목의 그룹을 직접 정한다. [typeId] null=직접 지정 해제(제목 규칙 적용), ""=그룹 없음. 앱 안에서만 쓰고 Notion에는 쓰지 않는다. */
+    suspend fun setNotionGroup(event: EventItem, typeId: String?) {
+        val registrationId = event.notionDatabaseId ?: return
+        val pageId = event.notionPageId ?: return
+        val dao = db.eventTypeDao()
+        if (typeId == null) dao.deleteNotionAssignment(registrationId, pageId) else dao.assignNotion(NotionGroupAssignmentEntity(registrationId, pageId, typeId))
+        afterGroupsChanged()
+    }
+
+    /**
+     * 러닝용 기본 그룹 세 개를 만든다(이미 같은 이름이 있으면 건너뜀). 색은 지금 쓰이는 색(공휴일 캘린더 포함)과
+     * 최대한 멀리 떨어진 추천색에서 고른다. 만든 개수를 돌려준다.
+     */
+    suspend fun createRunningGroups(): Int {
+        val presets = listOf(
+            "포인트훈련" to "RP, RACE, INT, TEMPO, MP",
+            "이지훈련" to "EASY, REC, LSD",
+            "보강·휴식" to "REST, STR, COR, PLY",
+        )
+        val existing = _eventTypes.value.map { it.name }.toSet()
+        val toCreate = presets.filter { it.first !in existing }
+        if (toCreate.isEmpty()) return 0
+        val colors = recommendColors(usedColors(), count = toCreate.size)
+        var order = (_eventTypes.value.maxOfOrNull { it.sortOrder } ?: 0) + 1
+        toCreate.forEachIndexed { i, (name, keywords) ->
+            db.eventTypeDao().upsert(
+                EventTypeEntity(java.util.UUID.randomUUID().toString(), name, colors.getOrElse(i) { 0xFF1A73E8.toInt() }, null, null, order++, keywords),
+            )
+        }
+        afterGroupsChanged()
+        return toCreate.size
     }
 
     /** 유형을 지워도 이미 만든 일정의 색은 그대로 남는다(유형 표시만 사라짐). */
     suspend fun deleteEventType(id: String) {
         db.eventTypeDao().delete(id)
         db.eventTypeDao().deleteAssignmentsOfType(id)
-        refreshEventTypes()
+        db.eventTypeDao().deleteNotionAssignmentsOfType(id)
+        afterGroupsChanged()
     }
 
     suspend fun getEventTypeId(eventId: Long): String? = repository.getEventTypeId(eventId)
@@ -243,7 +298,10 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
      * 추천색은 이것들과 최대한 멀리 떨어지게 고른다([recommendColors]).
      */
     fun usedColors(excludeTypeId: String? = null): List<Int> =
-        _calendars.value.map { it.color } +
+        // 앱이 직접 그리는 공휴일·절기 막대 색도 피한다(러닝 색이 공휴일과 헷갈리지 않게).
+        listOf(com.jongsun.runcal.data.special.HOLIDAY_BAR_COLOR, com.jongsun.runcal.data.special.SOLAR_TERM_BAR_COLOR) +
+            _calendars.value.map { it.color } +
+            _presets.value.filter { it.overrideEventColor }.map { it.colorArgb } +
             _notionDatabases.value.map { it.colorArgb } +
             _eventColorStyles.value.values.mapNotNull { s ->
                 parseCustomColorKey(s.paletteKey) ?: s.paletteKey?.let { k -> runCatching { com.jongsun.runcal.data.EventColorPaletteKey.valueOf(k).lightArgb }.getOrNull() }
@@ -311,8 +369,7 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
             val (start, endExclusive) = monthGridDateRange(weeks)
             val startMillis = start.atStartOfDay(zone).toInstant().toEpochMilli()
             val endMillis = endExclusive.atStartOfDay(zone).toInstant().toEpochMilli()
-            val selection = SourceSelection(_visibleCalendarIds.value, _visibleNotionDatabaseIds.value)
-            val events = eventRepository.getEvents(startMillis, endMillis, selection)
+            val events = eventRepository.getEvents(startMillis, endMillis, currentSelection())
             _monthCache.update { it + (yearMonth to events) }
             loadingMonths -= yearMonth
         }
@@ -330,8 +387,18 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
      * 표시 캘린더 필터(visibleCalendarIds)는 동일하게 적용된다.
      */
     suspend fun eventsInRange(startMillis: Long, endMillis: Long): List<EventItem> {
-        val selection = SourceSelection(_visibleCalendarIds.value, _visibleNotionDatabaseIds.value)
-        return eventRepository.getEvents(startMillis, endMillis, selection)
+        return eventRepository.getEvents(startMillis, endMillis, currentSelection())
+    }
+
+    /** 지금 화면에 적용할 조회 조건: 표시 캘린더·Notion DB + 활성 프리셋의 일정그룹·색 덮어쓰기(P11). */
+    private fun currentSelection(): SourceSelection {
+        val preset = _presets.value.firstOrNull { it.id == _activePresetId.value }
+        return SourceSelection(
+            _visibleCalendarIds.value,
+            _visibleNotionDatabaseIds.value,
+            groupIds = preset?.groupIds,
+            overrideColor = preset?.takeIf { it.overrideEventColor }?.colorArgb,
+        )
     }
 
     /**
@@ -562,6 +629,9 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
     /** 프리셋 정의는 앱·위젯 공용이라, 바꾸면 위젯을 항상 다시 그린다. */
     suspend fun savePresets(presets: List<AppPreset>) {
         appSettingsRepository.setPresets(presets)
+        // 지금 보고 있는 프리셋을 고쳤으면 표시 캘린더·Notion 필터도 새 정의로 다시 적용한다(전엔 다른 프리셋으로 바꿨다 와야 반영됐다).
+        val active = presets.firstOrNull { it.id == _activePresetId.value }
+        if (active != null) appSettingsRepository.applyPreset(active)
         RunCalWidgetRenderer.updateAllWidgets(getApplication())
     }
 

@@ -76,8 +76,8 @@ fun resolveEventColor(
     isDarkTheme: Boolean,
 ): ResolvedEventColor {
     val style = styleMap[sourceKeyFor(event)]
-    // 일정에 직접 지정한 색(일정 유형·색 선택)은 소스(캘린더) 단위 색 스타일보다 우선한다. 굵기는 소스 스타일을 따른다.
-    val background = event.eventColor?.let { adjustColorForTheme(it, isDarkTheme) }
+    // 우선순위: 프리셋 덮어쓰기·그룹 색(displayColor) → 일정에 직접 지정한 색 → 소스(캘린더) 단위 색 스타일. 굵기는 소스 스타일을 따른다.
+    val background = (event.displayColor ?: event.eventColor)?.let { adjustColorForTheme(it, isDarkTheme) }
         ?: resolveBackgroundColor(event.color, style, isDarkTheme)
     return ResolvedEventColor(background, contrastingTextColorArgb(background), style?.bold ?: false)
 }

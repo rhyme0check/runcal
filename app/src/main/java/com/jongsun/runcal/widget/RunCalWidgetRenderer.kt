@@ -14,6 +14,7 @@ import android.widget.RemoteViews
 import com.jongsun.runcal.MainActivity
 import com.jongsun.runcal.R
 import com.jongsun.runcal.data.CalendarRepository
+import com.jongsun.runcal.data.withGroup
 import com.jongsun.runcal.data.EventItem
 import com.jongsun.runcal.data.ResolvedEventColor
 import com.jongsun.runcal.data.dateRange
@@ -158,20 +159,23 @@ object RunCalWidgetRenderer {
         val startMillis = gridStart.atStartOfDay(zone).toInstant().toEpochMilli()
         val endMillis = gridEndExclusive.atStartOfDay(zone).toInstant().toEpochMilli()
 
-        val calendarEvents = if (preset.calendarIds?.isEmpty() == true) {
+        // 일정그룹(P11): 프리셋에 그룹이 있으면 그룹 일정은 어느 캘린더·DB에 있든 모아야 하므로 전부 읽은 뒤 거른다.
+        val groupIds = preset.groupIds?.takeIf { it.isNotEmpty() }
+        val fetchCalendarIds = if (groupIds != null) null else preset.calendarIds
+        val calendarEvents = if (fetchCalendarIds?.isEmpty() == true) {
             emptyList()
         } else {
-            CalendarRepository(context).getEvents(startMillis, endMillis, preset.calendarIds?.toList())
+            CalendarRepository(context).getEvents(startMillis, endMillis, fetchCalendarIds?.toList())
         }
         val afterCalendarMillis = System.currentTimeMillis()
 
         val notionDbIds = preset.notionDatabaseIds ?: emptySet()
-        val notionEvents = if (notionDbIds.isEmpty()) {
+        val notionEvents = if (groupIds == null && notionDbIds.isEmpty()) {
             emptyList()
         } else {
             val db = RunCalDatabase.getInstance(context)
             NotionEventSource(db.notionEventDao(), db.notionDatabaseDao())
-                .getEvents(startMillis, endMillis, notionDbIds.map { com.jongsun.runcal.data.source.SourceRef.NotionDatabase(it) }.toSet())
+                .getEvents(startMillis, endMillis, if (groupIds != null) null else notionDbIds.map { com.jongsun.runcal.data.source.SourceRef.NotionDatabase(it) }.toSet())
         }
         val afterNotionMillis = System.currentTimeMillis()
 
@@ -192,7 +196,21 @@ object RunCalWidgetRenderer {
         // 일반 일정을 "+N"으로 밀어내고, 컴팩트(점)는 막대 자체가 없으므로 둘 다 빨간 날짜 숫자만 적용한다.
         val specialBars = if (isExpandedKind) special?.specialEvents(gridStart, gridEndExclusive, specialFlags).orEmpty() else emptyList()
 
-        val events = (calendarEvents + notionEvents + specialBars).sortedBy { it.begin }
+        val groupIndex = com.jongsun.runcal.data.EventGroups.index(context)
+        val overrideColor = preset.colorArgb.takeIf { preset.overrideEventColor }
+        val sourceEvents = (calendarEvents + notionEvents).map { it.withGroup(groupIndex, overrideColor) }.let { list ->
+            if (groupIds == null) {
+                list
+            } else {
+                list.filter { e ->
+                    e.groupId in groupIds || when (e.sourceKind) {
+                        com.jongsun.runcal.data.source.EventSourceKind.CALENDAR -> preset.calendarIds?.contains(e.calendarId) ?: true
+                        com.jongsun.runcal.data.source.EventSourceKind.NOTION -> e.notionDatabaseId in notionDbIds
+                    }
+                }
+            }
+        }
+        val events = (sourceEvents + specialBars).sortedBy { it.begin }
         val resolvedColors = resolveEventColors(context, events)
         val afterColorsMillis = System.currentTimeMillis()
         val afterColorsMillisFromSpecial = afterColorsMillis - afterSpecialMillis
@@ -864,10 +882,16 @@ object RunCalWidgetRenderer {
         val eventRepository = EventRepository(
             CalendarRepository(context),
             NotionEventSource(db.notionEventDao(), db.notionDatabaseDao()),
+            groupIndex = { com.jongsun.runcal.data.EventGroups.index(context) },
         )
         val startMillis = start.atStartOfDay(zone).toInstant().toEpochMilli()
         val endMillis = endExclusive.atStartOfDay(zone).toInstant().toEpochMilli()
-        val selection = SourceSelection(preset.calendarIds, preset.notionDatabaseIds ?: emptySet())
+        val selection = SourceSelection(
+            preset.calendarIds,
+            preset.notionDatabaseIds ?: emptySet(),
+            groupIds = preset.groupIds,
+            overrideColor = preset.colorArgb.takeIf { preset.overrideEventColor },
+        )
         return eventRepository.getEvents(startMillis, endMillis, selection)
     }
 }

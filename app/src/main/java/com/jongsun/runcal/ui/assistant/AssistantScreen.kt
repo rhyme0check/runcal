@@ -505,7 +505,7 @@ private fun EventLine(event: EventItem, calendarName: String) {
         "%02d:%02d".format(begin.hour, begin.minute)
     }
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(modifier = Modifier.size(8.dp).background(Color(event.color), CircleShape))
+        Box(modifier = Modifier.size(8.dp).background(Color(event.displayColor ?: event.eventColor ?: event.color), CircleShape))
         Column(modifier = Modifier.padding(start = 8.dp)) {
             Text(
                 text = "${start.monthValue}/${start.dayOfMonth}($weekday) $time",
