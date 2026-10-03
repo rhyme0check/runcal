@@ -92,7 +92,7 @@ fun AssistantScreen(
     val busy by assistant.busy.collectAsStateWithLifecycle()
     val calendars by calendarViewModel.calendars.collectAsStateWithLifecycle()
     val notionDatabases by calendarViewModel.notionDatabases.collectAsStateWithLifecycle()
-    var input by remember { mutableStateOf("") }
+    var input by remember { mutableStateOf(assistant.consumeDraft() ?: "") }
     var showLog by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
 

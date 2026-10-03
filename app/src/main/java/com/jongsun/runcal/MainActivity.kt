@@ -57,6 +57,9 @@ sealed interface DeepLinkTarget {
 
     /** 앱 바로가기 — AI 명령 화면을 연다. [debugPrompt]는 디버그 빌드에서만 채워지는 테스트용 자동 입력. */
     data class Assistant(val debugPrompt: String?) : DeepLinkTarget
+
+    /** 다른 앱에서 공유받은 내용(P9). [icsEvents]가 있으면 일정 파일, 없으면 [text]를 일정으로 만들지 묻는다. */
+    data class Share(val text: String?, val icsEvents: List<com.jongsun.runcal.data.share.IcsEvent>) : DeepLinkTarget
 }
 
 class MainActivity : ComponentActivity() {
@@ -68,7 +71,7 @@ class MainActivity : ComponentActivity() {
         if (hasCalendarPermissions(this)) {
             CalendarObserverManager.register(this)
         }
-        pendingDeepLinkTarget = extractDeepLinkTarget(intent)
+        pendingDeepLinkTarget = extractShareTarget(intent) ?: extractDeepLinkTarget(intent)
         applyWidgetPresetFrom(intent)
         setContent {
             RunCalTheme {
@@ -83,8 +86,29 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        pendingDeepLinkTarget = extractDeepLinkTarget(intent)
+        pendingDeepLinkTarget = extractShareTarget(intent) ?: extractDeepLinkTarget(intent)
         applyWidgetPresetFrom(intent)
+    }
+
+    /** 공유(SEND)·열기(VIEW)로 들어온 글이나 .ics를 읽는다. 파일은 최대 512KB까지만 읽는다. */
+    private fun extractShareTarget(intent: Intent?): DeepLinkTarget.Share? {
+        val action = intent?.action
+        if (action != Intent.ACTION_SEND && action != Intent.ACTION_VIEW) return null
+        val uri: Uri? = if (action == Intent.ACTION_VIEW) intent.data else intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+        val fileText = uri?.let { u ->
+            runCatching {
+                contentResolver.openInputStream(u)?.use { input ->
+                    val bytes = input.readNBytes(512 * 1024)
+                    String(bytes, Charsets.UTF_8)
+                }
+            }.getOrNull()
+        }
+        val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT)
+        // 한 번 처리한 공유는 화면 회전 등으로 다시 처리하지 않게 지운다.
+        intent.action = null
+        val body = fileText ?: sharedText ?: return null
+        val events = if (com.jongsun.runcal.data.share.IcsParser.looksLikeIcs(body)) com.jongsun.runcal.data.share.IcsParser.parse(body) else emptyList()
+        return DeepLinkTarget.Share(text = if (events.isEmpty()) body.take(4000) else null, icsEvents = events)
     }
 
     /**

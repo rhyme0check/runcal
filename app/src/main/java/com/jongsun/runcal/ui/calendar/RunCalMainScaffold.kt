@@ -73,6 +73,13 @@ fun RunCalMainScaffold(
     LaunchedEffect(aiAvailable) { if (!aiAvailable) showAssistant = false }
     var autoOpenEventId by remember { mutableStateOf<Long?>(null) }
     var autoOpenOccurrenceBegin by remember { mutableStateOf<Long?>(null) }
+    var shareTarget by remember { mutableStateOf<DeepLinkTarget.Share?>(null) }
+    var manualShareText by remember { mutableStateOf<String?>(null) }
+    // 앱을 열거나 다시 돌아올 때마다(최소 10분 간격) 구글 캘린더·Notion을 새로 받아온다.
+    androidx.lifecycle.compose.LifecycleResumeEffect(Unit) {
+        viewModel.syncOnAppOpen()
+        onPauseOrDispose { }
+    }
 
     LaunchedEffect(pendingDeepLinkTarget) {
         when (val target = pendingDeepLinkTarget) {
@@ -99,6 +106,10 @@ fun RunCalMainScaffold(
                 selectedTab = RunCalTab.DAILY
                 autoOpenOccurrenceBegin = target.occurrenceBeginMillis
                 autoOpenEventId = target.eventId
+                onDeepLinkConsumed()
+            }
+            is DeepLinkTarget.Share -> {
+                shareTarget = target
                 onDeepLinkConsumed()
             }
             null -> Unit
@@ -204,6 +215,37 @@ fun RunCalMainScaffold(
                 assistant = assistantViewModel,
                 calendarViewModel = viewModel,
                 onClose = { showAssistant = false },
+            )
+        }
+        shareTarget?.let { share ->
+            if (share.icsEvents.isNotEmpty()) {
+                com.jongsun.runcal.ui.share.ShareIcsDialog(viewModel, share.icsEvents, onDismiss = { shareTarget = null })
+            } else {
+                val text = share.text.orEmpty()
+                com.jongsun.runcal.ui.share.ShareTextDialog(
+                    text = text,
+                    aiAvailable = aiAvailable,
+                    onAskAi = {
+                        assistantViewModel.setDraft("다음 내용을 일정으로 추가해줘:\n$text")
+                        shareTarget = null
+                        showAssistant = true
+                    },
+                    onManual = {
+                        manualShareText = text
+                        shareTarget = null
+                    },
+                    onDismiss = { shareTarget = null },
+                )
+            }
+        }
+        manualShareText?.let { text ->
+            EventEditDialog(
+                viewModel = viewModel,
+                existing = null,
+                initialDate = selectedDate,
+                onDismiss = { manualShareText = null },
+                initialTitle = text.lineSequence().firstOrNull { it.isNotBlank() }?.trim()?.take(100).orEmpty(),
+                initialDescription = text,
             )
         }
         }

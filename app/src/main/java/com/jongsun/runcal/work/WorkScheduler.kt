@@ -23,8 +23,8 @@ private const val REMINDER_RESYNC_INTERVAL_HOURS = 6L
 private const val SPECIAL_DAY_PREFETCH_NAME = "special_day_prefetch"
 private const val SPECIAL_DAY_PERIODIC_NAME = "special_day_periodic"
 
-/** 기본 동기화 주기. 설정 화면의 1/3/6/12시간 선택(3단계)이 이 값을 대체한다. */
-const val DEFAULT_NOTION_SYNC_INTERVAL_HOURS = 3L
+/** 기본 동기화 주기(P9: 3시간 → 1시간). 설정 화면의 1/3/6/12시간 선택이 이 값을 대체한다. */
+const val DEFAULT_NOTION_SYNC_INTERVAL_HOURS = 1L
 
 object WorkScheduler {
 
@@ -87,6 +87,17 @@ object WorkScheduler {
             .enqueueUniquePeriodicWork(MONTHLY_BACKUP_PERIODIC_NAME, ExistingPeriodicWorkPolicy.KEEP, request)
     }
 
+    /**
+     * 앱 시작 때 저장된 주기([savedHours])가 실제 예약된 주기와 다르면 한 번만 UPDATE로 맞춘다.
+     * [scheduleAll]은 KEEP이라 기본값이 바뀌거나(3→1시간) 예전 버전이 기본값으로만 예약해 둔 경우를 바로잡지 못한다.
+     */
+    fun applySavedIntervalIfChanged(context: Context, savedHours: Long) {
+        val prefs = context.getSharedPreferences("work_scheduler", Context.MODE_PRIVATE)
+        if (prefs.getLong("notion_interval_applied", -1L) == savedHours) return
+        reschedulePeriodic(context, savedHours)
+        prefs.edit().putLong("notion_interval_applied", savedHours).apply()
+    }
+
     /** 설정에서 동기화 주기를 바꿨을 때(3단계 UI) 호출 — 이번엔 의도적으로 UPDATE. */
     fun reschedulePeriodic(context: Context, intervalHours: Long) {
         val constraints = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
@@ -95,6 +106,7 @@ object WorkScheduler {
             .build()
         WorkManager.getInstance(context)
             .enqueueUniquePeriodicWork(NOTION_SYNC_PERIODIC_NAME, ExistingPeriodicWorkPolicy.UPDATE, request)
+        context.getSharedPreferences("work_scheduler", Context.MODE_PRIVATE).edit().putLong("notion_interval_applied", intervalHours).apply()
     }
 
     /**

@@ -161,7 +161,15 @@ private fun recurrenceSummary(rule: RecurrenceRule, startDate: LocalDate): Strin
  * 읽기 전용 연동이라 여기서 쓰기를 시도하지 않는다.
  */
 @Composable
-fun EventEditDialog(viewModel: CalendarViewModel, existing: EventItem?, initialDate: LocalDate, onDismiss: () -> Unit) {
+fun EventEditDialog(
+    viewModel: CalendarViewModel,
+    existing: EventItem?,
+    initialDate: LocalDate,
+    onDismiss: () -> Unit,
+    // 공유받은 글로 새 일정을 만들 때 미리 채울 제목·메모(P9).
+    initialTitle: String = "",
+    initialDescription: String = "",
+) {
     if (existing != null && existing.sourceKind == EventSourceKind.NOTION) {
         NotionItemDialog(viewModel = viewModel, event = existing, onDismiss = onDismiss)
         return
@@ -169,7 +177,7 @@ fun EventEditDialog(viewModel: CalendarViewModel, existing: EventItem?, initialD
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(modifier = Modifier.fillMaxSize()) {
-            EventEditContent(viewModel = viewModel, existing = existing, initialDate = initialDate, onDismiss = onDismiss)
+            EventEditContent(viewModel = viewModel, existing = existing, initialDate = initialDate, onDismiss = onDismiss, initialTitle = initialTitle, initialDescription = initialDescription)
         }
     }
 }
@@ -354,13 +362,15 @@ private fun EventEditContent(
     existing: EventItem?,
     initialDate: LocalDate,
     onDismiss: () -> Unit,
+    initialTitle: String = "",
+    initialDescription: String = "",
 ) {
     val calendars by viewModel.calendars.collectAsStateWithLifecycle()
     val writableCalendars = remember(calendars) { calendars.filter { it.isWritable } }
     val zone = remember { ZoneId.systemDefault() }
     val scope = rememberCoroutineScope()
 
-    var title by remember { mutableStateOf(existing?.title ?: "") }
+    var title by remember { mutableStateOf(existing?.title ?: initialTitle) }
     var allDay by remember { mutableStateOf(existing?.allDay ?: false) }
     var startDate by remember { mutableStateOf(existing?.dateRange(zone)?.start ?: initialDate) }
     var endDate by remember { mutableStateOf(existing?.dateRange(zone)?.endInclusive ?: initialDate) }
@@ -371,7 +381,7 @@ private fun EventEditContent(
         mutableStateOf(existing?.takeIf { !it.allDay }?.let { Instant.ofEpochMilli(it.end).atZone(zone).toLocalTime() } ?: LocalTime.of(10, 0))
     }
     var location by remember { mutableStateOf(existing?.location ?: "") }
-    var description by remember { mutableStateOf(existing?.description ?: "") }
+    var description by remember { mutableStateOf(existing?.description ?: initialDescription) }
     var selectedCalendarId by remember { mutableStateOf(existing?.calendarId ?: writableCalendars.firstOrNull()?.id) }
     // 새 일정만 기본 알림을 미리 채운다 — 기존 일정은 항상 아래 LaunchedEffect가 저장된 값으로 덮어쓴다.
     val defaultReminderMinutes by viewModel.defaultReminderMinutes.collectAsStateWithLifecycle()

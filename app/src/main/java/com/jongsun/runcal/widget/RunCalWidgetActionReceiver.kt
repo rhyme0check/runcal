@@ -38,6 +38,7 @@ class RunCalWidgetActionReceiver : BroadcastReceiver() {
                         WidgetActionContract.ACTION_JUMP_TODAY -> jumpToday(context, appWidgetId)
                         WidgetActionContract.ACTION_TOGGLE_TODO_RANGE ->
                             applyWidgetState(context, appWidgetId) { it.copy(todoIncludeTomorrow = !it.todoIncludeTomorrow) }
+                        WidgetActionContract.ACTION_REFRESH -> refresh(context, appWidgetId)
                         else -> Log.e(TAG, "RunCalWidgetActionReceiver: unknown action=$action id=$appWidgetId")
                     }
                 }
@@ -63,6 +64,13 @@ class RunCalWidgetActionReceiver : BroadcastReceiver() {
             Log.d(TAG, "arrow: id=$appWidgetId before=$currentViewing after=$next")
             next to System.currentTimeMillis()
         }
+    }
+
+    /** 새로고침: 구글 캘린더 동기화를 요청하고 Notion을 즉시 다시 받게 한 뒤, 지금 가진 데이터로 바로 다시 그린다. */
+    private suspend fun refresh(context: Context, appWidgetId: Int) {
+        com.jongsun.runcal.ui.calendar.requestGoogleCalendarSync(context)
+        com.jongsun.runcal.work.WorkScheduler.triggerManualSync(context)
+        RunCalWidgetRenderer.updateWidget(context, appWidgetId)
     }
 
     private suspend fun jumpToday(context: Context, appWidgetId: Int) {

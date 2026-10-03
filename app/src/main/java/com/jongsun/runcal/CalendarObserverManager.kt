@@ -25,6 +25,11 @@ object CalendarObserverManager {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var observer: ContentObserver? = null
 
+    private val _changes = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST)
+
+    /** 시스템 캘린더가 바뀔 때마다(구글 동기화 결과·다른 앱의 수정 포함) 신호를 보낸다. 앱 화면이 캐시를 다시 읽는 데 쓴다. */
+    val changes: kotlinx.coroutines.flow.SharedFlow<Unit> = _changes
+
     fun register(context: Context) {
         if (observer != null) return
         if (!hasCalendarReadPermission(context)) {
@@ -35,6 +40,7 @@ object CalendarObserverManager {
         val appContext = context.applicationContext
         val newObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
             override fun onChange(selfChange: Boolean) {
+                _changes.tryEmit(Unit)
                 scope.launch {
                     try {
                         RunCalWidgetRenderer.updateAllWidgets(appContext)

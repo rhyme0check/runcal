@@ -309,6 +309,15 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun changeLog() = ChangeLog.recent(getApplication())
 
+    /** 공유받은 글을 입력창에 미리 채워 둔다(자동 전송하지 않음 — 보내기는 사용자가 누른다). */
+    private var draft: String? = null
+
+    fun setDraft(text: String) {
+        draft = text
+    }
+
+    fun consumeDraft(): String? = draft.also { draft = null }
+
     /** 변경 기록의 Notion 항목을 아직 되돌릴 수 있는지(24시간 이내, 아직 되돌리지 않음). */
     fun canUndoFromLog(entry: ChangeEntry): Boolean =
         entry.undoIds.isNotEmpty() && entry.undoIds.all { NotionUndoStore.isUndoable(getApplication(), it) }

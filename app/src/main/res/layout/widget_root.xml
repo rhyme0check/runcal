@@ -16,7 +16,7 @@
         android:orientation="vertical"
         android:padding="10dp">
 
-        <!-- 헤더(한 줄): 프리셋 칩 | ◀ 전월 | 연월(탭 시 연월 빠른 선택) | ▶ 다음달 | 오늘.
+        <!-- 헤더(한 줄): 프리셋 칩 | ◀ 전월 | 연월(탭 시 연월 빠른 선택) | ▶ 다음달 | 오늘 | ↻ 새로고침.| ◀ 전월 | 연월(탭 시 연월 빠른 선택) | ▶ 다음달 | 오늘.
              손가락으로 누르기 쉽게 높이 44dp, 화살표는 48dp 폭으로 잡는다. -->
         <LinearLayout
             android:id="@+id/header_row"
@@ -87,6 +87,15 @@
                 android:paddingEnd="8dp"
                 android:text="오늘"
                 android:textSize="13sp" />
+
+            <!-- 새로고침: 구글 캘린더 동기화 요청 + Notion 즉시 동기화(끝나면 위젯이 다시 그려짐). -->
+            <TextView
+                android:id="@+id/refresh_button"
+                android:layout_width="40dp"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:text="↻"
+                android:textSize="17sp" />
 
             <!-- 구버전 호환용 자리(보이지 않음). 앱 열기는 날짜 칸을 누르면 된다. -->
             <FrameLayout

@@ -2,6 +2,12 @@ package com.jongsun.runcal
 
 import android.app.Application
 import com.jongsun.runcal.ai.syncAssistantShortcut
+import com.jongsun.runcal.data.AppSettingsRepository
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import com.jongsun.runcal.notification.ensureReminderNotificationChannel
 import com.jongsun.runcal.work.WorkScheduler
 
@@ -24,5 +30,12 @@ class RunCalApplication : Application() {
         ensureReminderNotificationChannel(this)
         syncAssistantShortcut(this)
         WorkScheduler.scheduleAll(this)
+        // 저장된 Notion 동기화 주기를 실제 예약에 반영한다(DataStore 읽기가 suspend라 백그라운드에서).
+        appScope.launch {
+            val hours = AppSettingsRepository(this@RunCalApplication).settings.first().notionSyncIntervalHours
+            WorkScheduler.applySavedIntervalIfChanged(this@RunCalApplication, hours.toLong())
+        }
     }
+
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 }

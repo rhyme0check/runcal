@@ -49,12 +49,29 @@ import java.time.temporal.ChronoUnit
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 private const val MONTH_ANCHOR_PAGE = 1200
 const val MONTH_PAGE_COUNT = 2400
 private const val DAY_ANCHOR_PAGE = 50000
+
+/** 앱을 열 때 동기화하는 최소 간격(잠깐 나갔다 들어올 때마다 네트워크를 쓰지 않게). */
+private const val APP_OPEN_SYNC_MIN_INTERVAL_MS = 10 * 60 * 1000L
+
+/** 기기에 등록된 구글 계정들의 캘린더 동기화를 즉시 요청한다. 계정이 없거나 권한이 없으면 조용히 넘어간다. */
+fun requestGoogleCalendarSync(context: android.content.Context) {
+    runCatching {
+        val extras = android.os.Bundle().apply {
+            putBoolean(android.content.ContentResolver.SYNC_EXTRAS_MANUAL, true)
+            putBoolean(android.content.ContentResolver.SYNC_EXTRAS_EXPEDITED, true)
+        }
+        android.accounts.AccountManager.get(context).getAccountsByType("com.google").forEach { account ->
+            android.content.ContentResolver.requestSync(account, android.provider.CalendarContract.AUTHORITY, extras)
+        }
+    }
+}
 const val DAY_PAGE_COUNT = 100000
 
 /** 월간/일간 화면이 공유하는 상태와 캐시. 화면 전환 시 재조회를 피하기 위해 월 단위로 이벤트를 캐시한다. */
@@ -171,6 +188,15 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
         }
         viewModelScope.launch { refreshCalendars() }
         viewModelScope.launch { refreshNotionDatabases() }
+        // 앱 밖에서 캘린더가 바뀌면(구글 동기화로 PC에서 고친 일정이 내려온 경우 등) 화면 캐시도 다시 읽는다.
+        // 동기화는 변경 알림을 연달아 보내므로 잠깐 모았다가 한 번만 처리한다.
+        @OptIn(kotlinx.coroutines.FlowPreview::class)
+        viewModelScope.launch {
+            com.jongsun.runcal.CalendarObserverManager.changes.debounce(700).collect {
+                invalidateCache()
+                ensureMonthLoaded(_visibleYearMonth.value, force = true)
+            }
+        }
         viewModelScope.launch { refreshEventColorStyles(); refreshEventTypes() }
     }
 
@@ -578,6 +604,24 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
         invalidateCache()
         ensureMonthLoaded(_visibleYearMonth.value, force = true)
         RunCalWidgetRenderer.updateAllWidgets(getApplication())
+    }
+
+    private var lastAppOpenSyncAt = 0L
+
+    /**
+     * 앱을 열(돌아올) 때마다 호출된다(P9). PC 등 다른 곳에서 바꾼 일정을 바로 보이게 한다:
+     * 구글 계정 캘린더는 시스템 동기화를 요청하고(결과는 캘린더 옵저버가 반영), Notion은 마지막 동기화가
+     * [APP_OPEN_SYNC_MIN_INTERVAL_MS]보다 오래됐으면 지금 다시 받는다. 너무 잦은 호출은 같은 간격으로 걸러낸다.
+     */
+    fun syncOnAppOpen() {
+        val now = System.currentTimeMillis()
+        if (now - lastAppOpenSyncAt < APP_OPEN_SYNC_MIN_INTERVAL_MS) return
+        lastAppOpenSyncAt = now
+        viewModelScope.launch {
+            requestGoogleCalendarSync(getApplication())
+            val stale = db.notionDatabaseDao().getAll().any { now - it.lastSyncedAtMillis > APP_OPEN_SYNC_MIN_INTERVAL_MS }
+            if (stale) runCatching { syncAllNotionDatabases() }
+        }
     }
 
     /** DB별 "앱에서 수정 허용"(P8). 끄면 날짜·상태 변경이 모두 막힌다. */

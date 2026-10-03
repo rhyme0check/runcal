@@ -22,7 +22,7 @@ val DEFAULT_WEEK_START_DAY: DayOfWeek = DayOfWeek.SUNDAY
 
 /** Notion 동기화 주기로 고를 수 있는 값들(시간 단위). 선택 UI는 3단계에서 붙인다. */
 val NOTION_SYNC_INTERVAL_HOUR_OPTIONS = listOf(1, 3, 6, 12)
-const val DEFAULT_NOTION_SYNC_INTERVAL_HOURS = 3
+const val DEFAULT_NOTION_SYNC_INTERVAL_HOURS = 1
 
 /** 새 일정을 만들 때 기본으로 깔아줄 알림 오프셋(분). null이면 알림 없이 시작. */
 const val DEFAULT_REMINDER_MINUTES = 10

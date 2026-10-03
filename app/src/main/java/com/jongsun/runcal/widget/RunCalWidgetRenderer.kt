@@ -45,6 +45,7 @@ object WidgetActionContract {
     const val ACTION_NAV_NEXT = "com.jongsun.runcal.widget.ACTION_NAV_NEXT"
     const val ACTION_JUMP_TODAY = "com.jongsun.runcal.widget.ACTION_JUMP_TODAY"
     const val ACTION_TOGGLE_TODO_RANGE = "com.jongsun.runcal.widget.ACTION_TOGGLE_TODO_RANGE"
+    const val ACTION_REFRESH = "com.jongsun.runcal.widget.ACTION_REFRESH"
 }
 
 private const val SLOT_OPEN_APP = 1
@@ -56,6 +57,7 @@ private const val SLOT_JUMP_TODAY = 6
 private const val SLOT_PERMISSION_OPEN_APP = 7
 private const val SLOT_TODO_TOGGLE = 8
 private const val SLOT_TODO_ITEM = 9
+private const val SLOT_REFRESH = 10
 private const val DAY_CELL_SLOT_BASE = 100 // 100..141 (6주 x 7일)
 private const val EVENT_ROW_SLOT_BASE = 200 // 200..249: 오늘, 250..299: 내일(세로 위젯)
 private const val EVENT_ROW_SLOT_TOMORROW_OFFSET = 50
@@ -312,6 +314,11 @@ object RunCalWidgetRenderer {
         root.setOnClickPendingIntent(
             R.id.today_button,
             broadcastPendingIntent(context, appWidgetId, SLOT_JUMP_TODAY, WidgetActionContract.ACTION_JUMP_TODAY),
+        )
+        root.setTextColor(R.id.refresh_button, RunCalWidgetColorRes.onBackgroundDim(context))
+        root.setOnClickPendingIntent(
+            R.id.refresh_button,
+            broadcastPendingIntent(context, appWidgetId, SLOT_REFRESH, WidgetActionContract.ACTION_REFRESH),
         )
     }
 
