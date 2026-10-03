@@ -55,6 +55,12 @@ class NotionPageWriter(private val client: OkHttpClient = SharedHttpClient.insta
         client.newCall(request).execute().use { response ->
             val body = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
+                // Notion 오류 응답의 code/message만 남긴다(예: restricted_resource). 요청 헤더·토큰은 남기지 않는다.
+                val detail = runCatching {
+                    val obj = json.parseToJsonElement(body) as JsonObject
+                    "${obj["code"]}: ${obj["message"]}"
+                }.getOrDefault("")
+                android.util.Log.w("RunCal", "NotionPageWriter: ${request.method} HTTP ${response.code} $detail")
                 throw NotionApiException("Notion API request failed with HTTP ${response.code}", response.code)
             }
             return body
