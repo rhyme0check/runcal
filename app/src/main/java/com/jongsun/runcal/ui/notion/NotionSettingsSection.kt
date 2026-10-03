@@ -53,6 +53,17 @@ fun NotionSettingsSection(viewModel: CalendarViewModel, modifier: Modifier = Mod
     var showAddDialog by remember { mutableStateOf(false) }
     var editingDatabase by remember { mutableStateOf<NotionDatabaseEntity?>(null) }
     var deletingDatabase by remember { mutableStateOf<NotionDatabaseEntity?>(null) }
+    var reminderDatabase by remember { mutableStateOf<NotionDatabaseEntity?>(null) }
+    reminderDatabase?.let { database ->
+        NotionReminderDialog(
+            database = database,
+            onDismiss = { reminderDatabase = null },
+            onSave = { timed, allDay ->
+                scope.launch { viewModel.setNotionReminders(database.id, timed, allDay) }
+                reminderDatabase = null
+            },
+        )
+    }
     var statusMessage by remember { mutableStateOf<String?>(null) }
     var syncing by remember { mutableStateOf(false) }
 
@@ -89,6 +100,7 @@ fun NotionSettingsSection(viewModel: CalendarViewModel, modifier: Modifier = Mod
                     onClick = { editingDatabase = database },
                     onDelete = { deletingDatabase = database },
                     onWriteEnabledChange = { enabled -> scope.launch { viewModel.setNotionWriteEnabled(database.id, enabled) } },
+                    onReminderClick = { reminderDatabase = database },
                 )
             }
         }
@@ -156,6 +168,7 @@ private fun NotionDatabaseRow(
     onClick: () -> Unit,
     onDelete: () -> Unit,
     onWriteEnabledChange: (Boolean) -> Unit,
+    onReminderClick: () -> Unit,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 6.dp),
@@ -174,6 +187,12 @@ private fun NotionDatabaseRow(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            Text(
+                text = "알림: " + reminderSummary(database),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.clickable(onClick = onReminderClick).padding(vertical = 4.dp),
+            )
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Switch(checked = database.writeEnabled, onCheckedChange = onWriteEnabledChange)
@@ -183,6 +202,55 @@ private fun NotionDatabaseRow(
             Icon(Icons.Default.Delete, contentDescription = "삭제")
         }
     }
+}
+
+/** 시간 일정: 시작 몇 분 전. */
+private val TIMED_REMINDER_OPTIONS: List<Pair<Int?, String>> =
+    listOf(null to "끔", 0 to "정시", 10 to "10분 전", 30 to "30분 전", 60 to "1시간 전", 120 to "2시간 전", 1440 to "하루 전")
+
+/** 종일 항목: 그날 0시 기준 분(음수=전날). */
+private val ALL_DAY_REMINDER_OPTIONS: List<Pair<Int?, String>> =
+    listOf(null to "끔", -180 to "전날 21:00", 360 to "당일 06:00", 420 to "당일 07:00", 480 to "당일 08:00", 540 to "당일 09:00")
+
+private fun reminderSummary(database: NotionDatabaseEntity): String {
+    val timed = TIMED_REMINDER_OPTIONS.firstOrNull { it.first == database.reminderMinutes }?.second ?: "${database.reminderMinutes}분 전"
+    val allDay = ALL_DAY_REMINDER_OPTIONS.firstOrNull { it.first == database.allDayReminderOffsetMinutes }?.second ?: "설정됨"
+    return if (database.reminderMinutes == null && database.allDayReminderOffsetMinutes == null) "끔 (눌러서 설정)" else "시간 일정 $timed · 종일 $allDay"
+}
+
+/** Notion DB 알림 설정. Notion에는 알림 정보가 없어서 RunCal이 이 값으로 폰 알림을 건다. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun NotionReminderDialog(database: NotionDatabaseEntity, onDismiss: () -> Unit, onSave: (Int?, Int?) -> Unit) {
+    var timed by remember { mutableStateOf(database.reminderMinutes) }
+    var allDay by remember { mutableStateOf(database.allDayReminderOffsetMinutes) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("${database.displayName} 알림") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("시간이 정해진 항목", style = MaterialTheme.typography.labelMedium)
+                androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    TIMED_REMINDER_OPTIONS.forEach { (value, label) ->
+                        FilterChip(selected = timed == value, onClick = { timed = value }, label = { Text(label) })
+                    }
+                }
+                Text("종일 항목", style = MaterialTheme.typography.labelMedium)
+                androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    ALL_DAY_REMINDER_OPTIONS.forEach { (value, label) ->
+                        FilterChip(selected = allDay == value, onClick = { allDay = value }, label = { Text(label) })
+                    }
+                }
+                Text(
+                    "알림은 일정 알림 사용·정확한 알람 권한이 켜져 있어야 울립니다. 동기화로 새로 받은 항목에도 자동으로 걸립니다.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = { onSave(timed, allDay) }) { Text("저장") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("취소") } },
+    )
 }
 
 @Composable

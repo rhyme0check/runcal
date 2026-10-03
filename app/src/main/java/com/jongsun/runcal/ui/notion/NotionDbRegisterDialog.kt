@@ -275,6 +275,8 @@ private fun NotionDbRegisterContent(
                                     lastSyncError = null,
                                     createdAtMillis = existing?.createdAtMillis ?: System.currentTimeMillis(),
                                     writeEnabled = existing?.writeEnabled ?: false,
+                                    reminderMinutes = existing?.reminderMinutes,
+                                    allDayReminderOffsetMinutes = existing?.allDayReminderOffsetMinutes,
                                 )
                                 val result = viewModel.registerNotionDatabase(entity)
                                 saving = false

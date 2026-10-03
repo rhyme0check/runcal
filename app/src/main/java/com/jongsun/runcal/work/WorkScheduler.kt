@@ -43,6 +43,14 @@ object WorkScheduler {
         scheduleMonthlyBackup(context)
         scheduleReminderResync(context)
         scheduleSpecialDaySync(context)
+        // 매월 15일·말일 Notion → 폰 캘린더 복사. 하루 두 번 깨어나 그날인지 확인한다(복사 캘린더를 정하지 않았으면 바로 끝남).
+        WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+            "notion_copy_periodic",
+            ExistingPeriodicWorkPolicy.KEEP,
+            PeriodicWorkRequestBuilder<NotionCopyWorker>(12, TimeUnit.HOURS)
+                .setConstraints(Constraints.Builder().setRequiresBatteryNotLow(true).build())
+                .build(),
+        )
     }
 
     /**

@@ -117,7 +117,42 @@ object ReminderScheduler {
         dao.deleteAll()
     }
 
-    private fun computeDesiredSchedule(context: Context): Map<String, ScheduledReminderEntity> {
+    private suspend fun computeDesiredSchedule(context: Context): Map<String, ScheduledReminderEntity> =
+        computeCalendarSchedule(context) + computeNotionSchedule(context)
+
+    /**
+     * Notion 항목 알림. DB마다 정한 값으로 건다(시간 일정: 시작 N분 전, 종일 항목: 그날 0시 기준 N분 — 예: 당일 07:00, 전날 21:00).
+     * Notion에는 알림 정보가 없어서 RunCal이 정한다. 캐시(Room)만 읽는다.
+     */
+    private suspend fun computeNotionSchedule(context: Context): Map<String, ScheduledReminderEntity> {
+        val db = RunCalDatabase.getInstance(context)
+        val registrations = db.notionDatabaseDao().getAll().filter { it.reminderMinutes != null || it.allDayReminderOffsetMinutes != null }
+        if (registrations.isEmpty()) return emptyMap()
+        val zone = ZoneId.systemDefault()
+        val now = System.currentTimeMillis()
+        val windowEnd = LocalDate.now(zone).plusDays(SCAN_WINDOW_DAYS).atStartOfDay(zone).toInstant().toEpochMilli()
+        val desired = LinkedHashMap<String, ScheduledReminderEntity>()
+        registrations.forEach { reg ->
+            // 종일 항목은 UTC 자정에 저장돼 있어 하루 앞까지 넉넉히 읽는다.
+            db.notionEventDao().getEventsInRange(listOf(reg.id), now - 24 * 60 * 60_000L, windowEnd).forEach { row ->
+                val (trigger, marker) = if (row.allDay) {
+                    val offset = reg.allDayReminderOffsetMinutes ?: return@forEach
+                    val date = java.time.Instant.ofEpochMilli(row.startMillis).atZone(java.time.ZoneOffset.UTC).toLocalDate()
+                    date.atStartOfDay(zone).toInstant().toEpochMilli() + offset * 60_000L to offset
+                } else {
+                    val minutes = reg.reminderMinutes ?: return@forEach
+                    row.startMillis - minutes * 60_000L to minutes
+                }
+                if (trigger <= now) return@forEach
+                val eventId = notionReminderEventId(row.notionPageId)
+                val key = reminderKey(eventId, row.startMillis, marker)
+                desired[key] = ScheduledReminderEntity(key, eventId, row.startMillis, marker, trigger)
+            }
+        }
+        return desired
+    }
+
+    private fun computeCalendarSchedule(context: Context): Map<String, ScheduledReminderEntity> {
         val resolver = context.contentResolver
         val zone = ZoneId.systemDefault()
         val now = System.currentTimeMillis()
@@ -219,6 +254,9 @@ private fun snoozeKey(eventId: Long, occurrenceBeginMillis: Long, reminderMinute
     SNOOZE_KEY_PREFIX + reminderKey(eventId, occurrenceBeginMillis, reminderMinutes)
 
 private fun isSnoozeKey(key: String): Boolean = key.startsWith(SNOOZE_KEY_PREFIX)
+
+/** Notion 항목 알림용 가짜 일정 id(항상 -2 이하 음수 — 캘린더 일정 id와 겹치지 않고, -1 "없음"과도 구분). */
+fun notionReminderEventId(pageId: String): Long = -((pageId.hashCode().toLong() and 0x7fffffffL) + 2)
 
 const val EXTRA_EVENT_ID = "com.jongsun.runcal.EXTRA_EVENT_ID"
 const val EXTRA_OCCURRENCE_BEGIN_MILLIS = "com.jongsun.runcal.EXTRA_OCCURRENCE_BEGIN_MILLIS"

@@ -48,6 +48,9 @@ interface NotionEventDao {
     )
     suspend fun getEventsInRange(registrationIds: List<String>, startMillis: Long, endMillis: Long): List<NotionEventEntity>
 
+    @Query("SELECT * FROM notion_events WHERE startMillis = :startMillis")
+    suspend fun getByStart(startMillis: Long): List<NotionEventEntity>
+
     @Query("SELECT * FROM notion_events WHERE startMillis < :endMillis AND endMillis > :startMillis")
     suspend fun getEventsInRangeAllDbs(startMillis: Long, endMillis: Long): List<NotionEventEntity>
 

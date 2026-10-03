@@ -92,6 +92,7 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
         if (trimmed.isEmpty() || _busy.value) return
         // 아직 확인 대기 중인 카드는 새 명령이 들어오면 취소로 처리한다(엔진도 같은 방식으로 정리한다).
         cancelPendingCards("새 명령을 보내 취소됨")
+        com.jongsun.runcal.data.UsageLog.track(getApplication(), "ai_command")
         append(ChatRole.USER, trimmed)
         _busy.value = true
         viewModelScope.launch {
@@ -167,6 +168,7 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
         if (card.status != CardStatus.PENDING || _busy.value) return
         // 반복 일정은 범위를 골라야만 실행할 수 있다(화면에서도 막지만 여기서도 확인한다).
         if (card.items.any { it.needsScope() && card.scopes[it.callKey] == null }) return
+        com.jongsun.runcal.data.UsageLog.track(getApplication(), "ai_execute")
         val active = engine ?: return
         _busy.value = true
         viewModelScope.launch {

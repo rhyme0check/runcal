@@ -56,6 +56,19 @@ private val MIGRATION_4_5 = object : Migration(4, 5) {
     }
 }
 
+private val MIGRATION_9_10 = object : Migration(9, 10) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE notion_databases ADD COLUMN reminderMinutes INTEGER")
+        db.execSQL("ALTER TABLE notion_databases ADD COLUMN allDayReminderOffsetMinutes INTEGER")
+        db.execSQL("CREATE TABLE IF NOT EXISTS usage_counts (day TEXT NOT NULL, name TEXT NOT NULL, count INTEGER NOT NULL, PRIMARY KEY(day, name))")
+        db.execSQL("CREATE TABLE IF NOT EXISTS app_errors (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, atMillis INTEGER NOT NULL, kind TEXT NOT NULL, message TEXT NOT NULL)")
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS notion_copies (registrationId TEXT NOT NULL, pageId TEXT NOT NULL, eventId INTEGER NOT NULL, " +
+                "startMillis INTEGER NOT NULL, PRIMARY KEY(registrationId, pageId))",
+        )
+    }
+}
+
 private val MIGRATION_8_9 = object : Migration(8, 9) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL(
@@ -109,8 +122,11 @@ private val MIGRATION_5_6 = object : Migration(5, 6) {
         EventTypeAssignmentEntity::class,
         NotionGroupAssignmentEntity::class,
         EventMarkEntity::class,
+        UsageCountEntity::class,
+        AppErrorEntity::class,
+        NotionCopyEntity::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = true,
 )
 abstract class RunCalDatabase : RoomDatabase() {
@@ -121,6 +137,7 @@ abstract class RunCalDatabase : RoomDatabase() {
     abstract fun scheduledReminderDao(): ScheduledReminderDao
     abstract fun specialDayDao(): SpecialDayDao
     abstract fun eventTypeDao(): EventTypeDao
+    abstract fun usageDao(): UsageDao
 
     companion object {
         @Volatile private var instance: RunCalDatabase? = null
@@ -131,7 +148,7 @@ abstract class RunCalDatabase : RoomDatabase() {
                     context.applicationContext,
                     RunCalDatabase::class.java,
                     "runcal_database",
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9).build().also { instance = it }
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10).build().also { instance = it }
             }
     }
 }

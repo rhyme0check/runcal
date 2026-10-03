@@ -324,6 +324,16 @@ fun SettingsScreen(viewModel: CalendarViewModel, assistantViewModel: AssistantVi
 
         item {
             HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+            NotionCopySection(viewModel = viewModel)
+        }
+
+        item {
+            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+            UsageLogSection()
+        }
+
+        item {
+            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
             Text(text = "테스트 도구", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = {

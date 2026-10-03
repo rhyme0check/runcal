@@ -107,6 +107,7 @@ class MainActivity : ComponentActivity() {
         // 한 번 처리한 공유는 화면 회전 등으로 다시 처리하지 않게 지운다.
         intent.action = null
         val body = fileText ?: sharedText ?: return null
+        com.jongsun.runcal.data.UsageLog.track(this, if (fileText != null) "share_file" else "share_text")
         val events = if (com.jongsun.runcal.data.share.IcsParser.looksLikeIcs(body)) com.jongsun.runcal.data.share.IcsParser.parse(body) else emptyList()
         return DeepLinkTarget.Share(text = if (events.isEmpty()) body.take(4000) else null, icsEvents = events)
     }
@@ -117,6 +118,7 @@ class MainActivity : ComponentActivity() {
      */
     private fun applyWidgetPresetFrom(intent: Intent?) {
         val presetId = intent?.getStringExtra(EXTRA_PRESET_ID) ?: return
+        com.jongsun.runcal.data.UsageLog.track(this, "widget_open_app")
         intent.removeExtra(EXTRA_PRESET_ID) // 화면 회전 등으로 같은 인텐트를 다시 처리하지 않게.
         lifecycleScope.launch {
             val shared = SharedPresets.snapshot(applicationContext)

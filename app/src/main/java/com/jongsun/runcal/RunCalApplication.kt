@@ -27,6 +27,9 @@ class RunCalApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // 오류로 꺼질 때 원인을 남기고(앱 안에만), 지난 기록을 정리한다.
+        com.jongsun.runcal.data.UsageLog.installCrashHandler(this)
+        com.jongsun.runcal.data.UsageLog.onAppStart(this)
         // 시각 표기(24/12시간)는 위젯·알림·화면이 동기로 읽으므로 가장 먼저 읽어 둔다.
         com.jongsun.runcal.data.TimeFormatPrefs.load(this)
         ensureReminderNotificationChannel(this)

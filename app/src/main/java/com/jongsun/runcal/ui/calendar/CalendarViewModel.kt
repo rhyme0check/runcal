@@ -14,6 +14,7 @@ import com.jongsun.runcal.data.room.NotionGroupAssignmentEntity
 import com.jongsun.runcal.data.EventGroupIndex
 import com.jongsun.runcal.data.EventGroups
 import com.jongsun.runcal.data.HiddenCalendars
+import com.jongsun.runcal.data.UsageLog
 import com.jongsun.runcal.data.CalendarRepository
 import com.jongsun.runcal.data.backup.BackupPayload
 import com.jongsun.runcal.data.backup.BackupRestoreService
@@ -126,6 +127,11 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
     private val _allCalendars = MutableStateFlow<List<CalendarInfo>>(emptyList())
     val allCalendars: StateFlow<List<CalendarInfo>> = _allCalendars.asStateFlow()
 
+    private val _copyCalendarId = MutableStateFlow<Long?>(null)
+
+    /** Notion 항목을 복사해 둘 폰 캘린더(설정 > 폰 캘린더로 복사). null=끔. */
+    val copyCalendarId: StateFlow<Long?> = _copyCalendarId.asStateFlow()
+
     private val _hiddenCalendarIds = MutableStateFlow<Set<Long>>(emptySet())
     val hiddenCalendarIds: StateFlow<Set<Long>> = _hiddenCalendarIds.asStateFlow()
 
@@ -202,6 +208,7 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
                 _remindersEnabled.value = settings.remindersEnabled
                 _presetLinkEnabled.value = settings.presetLinkEnabled
                 _defaultReminderMinutes.value = settings.defaultReminderMinutes
+                _copyCalendarId.value = settings.copyCalendarId
                 val hiddenChanged = _hiddenCalendarIds.value != settings.hiddenCalendarIds
                 _hiddenCalendarIds.value = settings.hiddenCalendarIds
                 if (hiddenChanged) {
@@ -476,6 +483,7 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
         rrule: String? = null,
         style: EventStyleChoice? = null,
     ): Long {
+        UsageLog.track(getApplication(), "event_create")
         val id = repository.createEvent(calendarId, title, startMillis, endMillis, allDay, location, description, reminderMinutes, rrule = rrule, eventColor = style?.eventColor, eventTypeId = style?.typeId)
         if (id > 0) {
             invalidateCache()
@@ -498,6 +506,7 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
         rrule: String? = null,
         style: EventStyleChoice? = null,
     ): Int {
+        UsageLog.track(getApplication(), "event_update")
         val updated = repository.updateEvent(eventId, title, startMillis, endMillis, allDay, location, description, reminderMinutes, rrule = rrule,
             updateColor = style != null, eventColor = style?.eventColor, eventTypeId = style?.typeId,
         )
@@ -511,6 +520,7 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
     }
 
     suspend fun deleteLocalEvent(eventId: Long): Int {
+        UsageLog.track(getApplication(), "event_delete")
         val deleted = repository.deleteEvent(eventId)
         if (deleted > 0) {
             invalidateCache()
@@ -654,6 +664,7 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
      * emptySet()으로 변환해서 넘긴다 — 그대로 null을 넘기면 "전체 Notion DB"로 해석돼버린다.
      */
     suspend fun applyPreset(preset: AppPreset) {
+        UsageLog.track(getApplication(), "preset_apply")
         appSettingsRepository.applyPreset(preset)
         // 연동 중이면 고정하지 않은 위젯들이 새 프리셋을 따라간다.
         if (_presetLinkEnabled.value) RunCalWidgetRenderer.updateAllWidgets(getApplication())
@@ -700,6 +711,9 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
     /** "지금 동기화" — 등록된 모든 DB를 즉시(동기적으로) 재동기화한다. */
     suspend fun syncAllNotionDatabases(): List<NotionSyncResult> {
         val results = notionSyncJob.syncAll()
+        UsageLog.track(getApplication(), "notion_sync_manual")
+        WorkScheduler.triggerReminderResyncNow(getApplication())
+        results.filter { it.status != "OK" }.forEach { UsageLog.error(getApplication(), "notion_sync", "${it.status} ${it.error.orEmpty()}") }
         refreshNotionDatabases()
         invalidateCache()
         ensureMonthLoaded(_visibleYearMonth.value, force = true)
@@ -742,6 +756,8 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
     /** Notion 항목의 날짜·상태를 바꾼다. 성공·충돌(재동기화됨) 모두 화면·위젯을 새로 그린다. */
     suspend fun applyNotionChange(event: EventItem, change: NotionChange): NotionWriteResult {
         val result = notionWriteService.apply(event, change)
+        UsageLog.track(getApplication(), "notion_write")
+        if (result is NotionWriteResult.Failed) UsageLog.error(getApplication(), "notion_write", result.message)
         if (result !is NotionWriteResult.Failed) afterNotionWrite()
         return result
     }
@@ -752,7 +768,38 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
         return result
     }
 
+    /** Notion DB 알림 설정. [timedMinutes]=시간 일정 몇 분 전, [allDayOffset]=종일 항목 그날 0시 기준 분. null=끔. */
+    suspend fun setNotionReminders(id: String, timedMinutes: Int?, allDayOffset: Int?) {
+        db.notionDatabaseDao().setReminders(id, timedMinutes, allDayOffset)
+        refreshNotionDatabases()
+        WorkScheduler.triggerReminderResyncNow(getApplication())
+    }
+
+    suspend fun setCopyCalendarId(id: Long?) {
+        appSettingsRepository.setCopyCalendarId(id)
+    }
+
+    /** 지금 바로 Notion 항목을 폰 캘린더에 복사한다. 결과 문구를 돌려준다. */
+    suspend fun copyNotionToCalendarNow(): String {
+        val result = com.jongsun.runcal.data.NotionCalendarCopyJob(getApplication()).run()
+        com.jongsun.runcal.work.NotionCopyWorker.recordCopy(getApplication(), LocalDate.now(), result.summary)
+        if (result.error != null) UsageLog.error(getApplication(), "notion_copy", result.error) else UsageLog.track(getApplication(), "notion_copy_manual")
+        invalidateCache()
+        ensureMonthLoaded(_visibleYearMonth.value, force = true)
+        RunCalWidgetRenderer.updateAllWidgets(getApplication())
+        return result.summary
+    }
+
+    suspend fun clearNotionCopies(): String {
+        val removed = com.jongsun.runcal.data.NotionCalendarCopyJob(getApplication()).clearAll()
+        invalidateCache()
+        ensureMonthLoaded(_visibleYearMonth.value, force = true)
+        RunCalWidgetRenderer.updateAllWidgets(getApplication())
+        return "복사본 ${removed}개를 지웠습니다"
+    }
+
     private suspend fun afterNotionWrite() {
+        WorkScheduler.triggerReminderResyncNow(getApplication())
         refreshNotionDatabases()
         invalidateCache()
         ensureMonthLoaded(_visibleYearMonth.value, force = true)

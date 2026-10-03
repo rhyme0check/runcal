@@ -25,10 +25,15 @@ class NotionSyncWorker(
             val db = RunCalDatabase.getInstance(applicationContext)
             val syncJob = NotionSyncJob(db.notionDatabaseDao(), db.notionEventDao(), NotionApiClient())
             val results = syncJob.syncAll()
+            results.filter { it.status != "OK" }.forEach { com.jongsun.runcal.data.UsageLog.error(applicationContext, "notion_sync", "${it.status} ${it.error.orEmpty()}") }
             val totalEvents = results.sumOf { it.eventCount }
             Log.d(TAG, "NotionSyncWorker: synced ${results.size} db(s), $totalEvents event(s) cached")
             // 캐시가 바뀌었으니 위젯도 다시 그린다(앱이 꺼져 있어도 주기 동기화 결과가 홈 화면에 보이게).
-            if (results.isNotEmpty()) com.jongsun.runcal.widget.RunCalWidgetRenderer.updateAllWidgets(applicationContext)
+            if (results.isNotEmpty()) {
+                com.jongsun.runcal.widget.RunCalWidgetRenderer.updateAllWidgets(applicationContext)
+                // Notion 항목이 바뀌었을 수 있으니 알림도 다시 계산한다.
+                WorkScheduler.triggerReminderResyncNow(applicationContext)
+            }
             Result.success()
         } catch (e: Exception) {
             Log.e(TAG, "NotionSyncWorker: sync failed, will retry", e)

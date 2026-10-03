@@ -277,6 +277,14 @@ object RunCalWidgetRenderer {
         }
 
         val totalMillis = System.currentTimeMillis() - renderStartMillis
+        // 기준(350ms)을 넘은 렌더는 오류 기록에 남긴다(사용 기록 > 내보내기로 확인).
+        if (totalMillis > 350) {
+            com.jongsun.runcal.data.UsageLog.error(
+                context,
+                "widget_slow",
+                "monthly id=$appWidgetId total=${totalMillis}ms calendar=${afterCalendarMillis - afterSettingsMillis}ms notion=${afterNotionMillis - afterCalendarMillis}ms events=${events.size}",
+            )
+        }
         Log.d(
             TAG,
             "renderMonthly perf appWidgetId=$appWidgetId events=${events.size} " +

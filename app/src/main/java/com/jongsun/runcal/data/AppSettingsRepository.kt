@@ -59,6 +59,8 @@ data class AppSettings(
     val presetLinkEnabled: Boolean = true,
     // 목록에서 숨긴 캘린더(설정 > 표시할 캘린더 > 목록 관리). 앱·위젯·프리셋·선택지 어디에도 나오지 않고 일정도 읽지 않는다.
     val hiddenCalendarIds: Set<Long> = emptySet(),
+    // Notion 항목을 매월 15일·말일에 복사해 둘 폰 캘린더(예: 삼성 My calendar). null=끔.
+    val copyCalendarId: Long? = null,
 )
 
 class AppSettingsRepository(private val context: Context) {
@@ -81,6 +83,7 @@ class AppSettingsRepository(private val context: Context) {
         val DEFAULT_REMINDER_NONE = booleanPreferencesKey("default_reminder_none")
         val PRESET_LINK_ENABLED = booleanPreferencesKey("preset_link_enabled")
         val HIDDEN_CALENDAR_IDS = stringSetPreferencesKey("hidden_calendar_ids")
+        val COPY_CALENDAR_ID = longPreferencesKey("copy_calendar_id")
     }
 
     val settings: Flow<AppSettings> = context.appSettingsDataStore.data.map { prefs ->
@@ -107,6 +110,7 @@ class AppSettingsRepository(private val context: Context) {
             },
             presetLinkEnabled = prefs[Keys.PRESET_LINK_ENABLED] ?: true,
             hiddenCalendarIds = prefs[Keys.HIDDEN_CALENDAR_IDS]?.mapNotNull { it.toLongOrNull() }?.toSet() ?: emptySet(),
+            copyCalendarId = prefs[Keys.COPY_CALENDAR_ID],
         )
     }
 
@@ -156,6 +160,10 @@ class AppSettingsRepository(private val context: Context) {
             prefs[Keys.ACTIVE_PRESET_ID] = preset.id
         }
         SharedPresets.invalidate()
+    }
+
+    suspend fun setCopyCalendarId(id: Long?) {
+        context.appSettingsDataStore.edit { prefs -> if (id == null) prefs.remove(Keys.COPY_CALENDAR_ID) else prefs[Keys.COPY_CALENDAR_ID] = id }
     }
 
     suspend fun setHiddenCalendarIds(ids: Set<Long>) {

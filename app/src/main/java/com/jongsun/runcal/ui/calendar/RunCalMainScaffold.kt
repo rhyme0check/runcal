@@ -63,6 +63,8 @@ fun RunCalMainScaffold(
 ) {
     val viewModel: CalendarViewModel = viewModel()
     var selectedTab by rememberSaveable { mutableStateOf(RunCalTab.MONTHLY) }
+    val usageContext = LocalContext.current
+    LaunchedEffect(selectedTab) { com.jongsun.runcal.data.UsageLog.track(usageContext, "tab_" + selectedTab.name.lowercase()) }
     var showMonthPicker by remember { mutableStateOf(false) }
     // AI 자연어 명령: 키가 있고 사용자가 설정에서 켰을 때만 ✨ 아이콘/화면이 나타난다(기본 꺼짐).
     val context = LocalContext.current

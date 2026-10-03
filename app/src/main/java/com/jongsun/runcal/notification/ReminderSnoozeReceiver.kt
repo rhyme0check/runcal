@@ -22,7 +22,8 @@ class ReminderSnoozeReceiver : BroadcastReceiver() {
         val reminderMinutes = intent.getIntExtra(EXTRA_REMINDER_MINUTES, 0)
         val snoozeMinutes = intent.getIntExtra(EXTRA_SNOOZE_MINUTES, 5)
         val notificationId = intent.getIntExtra(EXTRA_NOTIFICATION_ID, 0)
-        if (eventId <= 0 || occurrenceBeginMillis <= 0) return
+        // Notion 항목 알림은 음수 id(notionReminderEventId)를 쓴다. -1은 "없음"(기본값).
+        if (eventId == -1L || eventId == 0L || occurrenceBeginMillis <= 0) return
 
         NotificationManagerCompat.from(context).cancel(notificationId)
 

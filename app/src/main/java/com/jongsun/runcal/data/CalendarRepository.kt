@@ -143,6 +143,8 @@ class CalendarRepository(private val context: Context) : EventSource {
 
             // 목록에서 숨긴 캘린더는 어떤 화면에서도 읽지 않는다(전체 보기·예전 프리셋 포함).
             val hidden = HiddenCalendars.ids(context)
+            // Notion 항목을 폰 캘린더에 복사해 둔 것은 RunCal에서는 숨긴다(원본과 두 번 보이지 않게).
+            val copies = NotionCopies.eventIds(context)
             val result = mutableListOf<EventItem>()
             resolver.query(uri, projection, selection, selectionArgs, "${CalendarContract.Instances.BEGIN} ASC")?.use { cursor ->
                 val eventIdIdx = cursor.getColumnIndexOrThrow(CalendarContract.Instances.EVENT_ID)
@@ -158,6 +160,7 @@ class CalendarRepository(private val context: Context) : EventSource {
                 val eventColorIdx = cursor.getColumnIndexOrThrow(CalendarContract.Instances.EVENT_COLOR)
                 while (cursor.moveToNext()) {
                     if (hidden.isNotEmpty() && cursor.getLong(calendarIdIdx) in hidden) continue
+                    if (copies.isNotEmpty() && cursor.getLong(eventIdIdx) in copies) continue
                     result += EventItem(
                         id = cursor.getLong(eventIdIdx),
                         calendarId = cursor.getLong(calendarIdIdx),

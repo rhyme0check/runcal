@@ -32,7 +32,8 @@ class ReminderAlarmReceiver : BroadcastReceiver() {
         val eventId = intent.getLongExtra(EXTRA_EVENT_ID, -1L)
         val occurrenceBeginMillis = intent.getLongExtra(EXTRA_OCCURRENCE_BEGIN_MILLIS, -1L)
         val reminderMinutes = intent.getIntExtra(EXTRA_REMINDER_MINUTES, 0)
-        if (eventId <= 0 || occurrenceBeginMillis <= 0) return
+        // Notion 항목 알림은 음수 id(notionReminderEventId)를 쓴다. -1은 "없음"(기본값).
+        if (eventId == -1L || eventId == 0L || occurrenceBeginMillis <= 0) return
 
         val pendingResult = goAsync()
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
@@ -50,8 +51,9 @@ class ReminderAlarmReceiver : BroadcastReceiver() {
     }
 
     @SuppressLint("MissingPermission") // hasPostNotificationPermissionSafe()로 직접 확인 후에만 notify() 호출
-    private fun showNotification(context: Context, eventId: Long, occurrenceBeginMillis: Long, reminderMinutes: Int) {
-        val detail = queryEventDetail(context, eventId) ?: return
+    private suspend fun showNotification(context: Context, eventId: Long, occurrenceBeginMillis: Long, reminderMinutes: Int) {
+        val isNotion = eventId < -1L
+        val detail = (if (isNotion) queryNotionDetail(context, eventId, occurrenceBeginMillis) else queryEventDetail(context, eventId)) ?: return
         ensureReminderNotificationChannel(context)
 
         val zone = ZoneId.systemDefault()
@@ -66,9 +68,13 @@ class ReminderAlarmReceiver : BroadcastReceiver() {
         val contentIntent = Intent(context, MainActivity::class.java).apply {
             data = Uri.parse("runcal://reminder/open/$eventId/$occurrenceBeginMillis")
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra(MainActivity.EXTRA_TARGET_EVENT_ID, eventId)
-            putExtra(MainActivity.EXTRA_TARGET_INSTANCE_BEGIN_MILLIS, occurrenceBeginMillis)
-            putExtra(MainActivity.EXTRA_TARGET_DATE_EPOCH_DAY, Instant.ofEpochMilli(occurrenceBeginMillis).atZone(zone).toLocalDate().toEpochDay())
+            // Notion 항목은 일정 상세 대신 그 날짜로 연다(종일은 UTC 자정에 저장돼 있다).
+            if (!isNotion) {
+                putExtra(MainActivity.EXTRA_TARGET_EVENT_ID, eventId)
+                putExtra(MainActivity.EXTRA_TARGET_INSTANCE_BEGIN_MILLIS, occurrenceBeginMillis)
+            }
+            val dateZone = if (isNotion && detail.allDay) java.time.ZoneOffset.UTC else zone
+            putExtra(MainActivity.EXTRA_TARGET_DATE_EPOCH_DAY, Instant.ofEpochMilli(occurrenceBeginMillis).atZone(dateZone).toLocalDate().toEpochDay())
         }
         val contentPendingIntent = PendingIntent.getActivity(
             context,
@@ -120,6 +126,14 @@ class ReminderAlarmReceiver : BroadcastReceiver() {
     }
 
     private data class EventDetail(val title: String, val location: String, val allDay: Boolean)
+
+    /** Notion 항목 알림: 캐시에서 같은 시작 시각·같은 가짜 id의 항목을 찾는다. 장소 자리에 DB 이름을 보여 준다. */
+    private suspend fun queryNotionDetail(context: Context, eventId: Long, occurrenceBeginMillis: Long): EventDetail? {
+        val db = com.jongsun.runcal.data.room.RunCalDatabase.getInstance(context)
+        val row = db.notionEventDao().getByStart(occurrenceBeginMillis).firstOrNull { notionReminderEventId(it.notionPageId) == eventId } ?: return null
+        val dbName = db.notionDatabaseDao().getById(row.registrationId)?.displayName.orEmpty()
+        return EventDetail(title = row.title, location = dbName, allDay = row.allDay)
+    }
 
     private fun queryEventDetail(context: Context, eventId: Long): EventDetail? {
         val uri = ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId)

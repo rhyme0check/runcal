@@ -33,6 +33,9 @@ data class NotionDatabaseEntity(
     val createdAtMillis: Long,
     /** 앱에서 이 DB의 날짜·상태를 바꿔도 되는지(P8). 기본 꺼짐 — 사용자가 설정에서 DB별로 켠다. 백업에는 넣지 않는다(복원 시 항상 꺼진 상태). */
     @ColumnInfo(defaultValue = "0") val writeEnabled: Boolean = false,
+    /** 알림(앱 안). 시간이 있는 항목은 시작 [reminderMinutes]분 전, 종일 항목은 그날 0시 기준 [allDayReminderOffsetMinutes]분(예: 420=당일 07:00, -180=전날 21:00). null=끔. */
+    val reminderMinutes: Int? = null,
+    val allDayReminderOffsetMinutes: Int? = null,
 )
 
 @Dao
@@ -53,6 +56,9 @@ interface NotionDatabaseDao {
         "UPDATE notion_databases SET lastSyncedAtMillis = :atMillis, lastSyncStatus = :status, lastSyncError = :error WHERE id = :id",
     )
     suspend fun updateSyncResult(id: String, atMillis: Long, status: String, error: String?)
+
+    @Query("UPDATE notion_databases SET reminderMinutes = :timedMinutes, allDayReminderOffsetMinutes = :allDayOffset WHERE id = :id")
+    suspend fun setReminders(id: String, timedMinutes: Int?, allDayOffset: Int?)
 
     @Query("UPDATE notion_databases SET writeEnabled = :enabled WHERE id = :id")
     suspend fun setWriteEnabled(id: String, enabled: Boolean)

@@ -22,6 +22,7 @@ class RunCalWidgetActionReceiver : BroadcastReceiver() {
         val appWidgetId = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)
         val action = intent.action
         Log.d(TAG, "callback=RunCalWidgetActionReceiver action=$action id=$appWidgetId")
+        com.jongsun.runcal.data.UsageLog.track(context, "widget_" + action.orEmpty().substringAfterLast("ACTION_").lowercase())
         if (appWidgetId == AppWidgetManager.INVALID_APPWIDGET_ID || action == null) return
 
         val tapAtMillis = System.currentTimeMillis()
